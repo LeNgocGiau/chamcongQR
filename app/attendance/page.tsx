@@ -9,6 +9,7 @@ import { QrScanner } from "@/components/qr-scanner"
 import { ArrowLeft, Clock, CheckCircle, XCircle, AlertCircle, AlertTriangle, History } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
+import { emailTemplates } from "@/lib/emailTemplates"
 
 interface AttendanceRecord {
   id: string
@@ -26,10 +27,13 @@ interface EmployeeRegistration {
   phone: string
   department: string
   position: string
-  status: "pending" | "approved" | "rejected"
+  status: "pending" | "approved" | "rejected" | "suspended"
   qrCode: string
+  uniqueCode: string
   registeredAt: string
-  uniqueCode?: string // Mã dưới vạch
+  suspensionReason?: string
+  suspensionStart?: string
+  suspensionEnd?: string
 }
 
 export default function AttendancePage() {
@@ -155,20 +159,43 @@ export default function AttendancePage() {
         return
       }
 
-      if (employee.status === "pending") {
-        setScanResult({
-          success: false,
-          message: "Tài khoản của bạn đang chờ admin duyệt. Vui lòng thử lại sau.",
-        })
-        return
-      }
+      if (employee.status === "suspended") {
+        const now = new Date()
+        const suspensionEndDate = employee.suspensionEnd ? new Date(employee.suspensionEnd) : null
 
-      if (employee.status === "rejected") {
-        setScanResult({
-          success: false,
-          message: "Tài khoản của bạn đã bị từ chối. Vui lòng liên hệ admin.",
-        })
-        return
+        // Kiểm tra xem đã hết hạn đình chỉ chưa
+        if (suspensionEndDate && now > suspensionEndDate) {
+          // Tự động khôi phục
+          const updatedEmployees = employees.map(emp => 
+            emp.id === employee.id ? { ...emp, status: "approved", suspensionReason: undefined, suspensionStart: undefined, suspensionEnd: undefined } : emp
+          )
+          localStorage.setItem("employeeRegistrations", JSON.stringify(updatedEmployees))
+          
+          // Gửi email thông báo
+          const restorationTemplate = emailTemplates.find(t => t.id === 'restoration')
+          if (restorationTemplate) {
+            const emailContent = restorationTemplate.content.replace(/{employeeName}/g, employee.name)
+            fetch('/api/send-email', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ to: employee.email, subject: restorationTemplate.subject, html: emailContent }),
+            }).catch(error => console.error("Lỗi gửi email tự động khôi phục:", error))
+          }
+
+          // Gán lại employee đã được cập nhật để xử lý chấm công
+          Object.assign(employee, updatedEmployees.find(e => e.id === employee.id))
+
+        } else {
+          // Vẫn còn trong thời gian đình chỉ
+          setScanResult({
+            success: false,
+            message: `Tài khoản của bạn đã bị đình chỉ. Lý do: ${employee.suspensionReason || 'Không có lý do'}. Hiệu lực đến: ${
+              employee.suspensionEnd === "permanent" ? "Vĩnh viễn" : new Date(employee.suspensionEnd!).toLocaleString("vi-VN")
+            }`,
+          })
+          setShowScanner(false)
+          return
+        }
       }
 
       // Kiểm tra trạng thái chấm công hôm nay
@@ -251,64 +278,116 @@ export default function AttendancePage() {
       return
     }
 
-    // Tìm nhân viên theo mã dưới vạch
+    // Tìm nhân viên dựa trên mã
     const employees: EmployeeRegistration[] = JSON.parse(localStorage.getItem("employeeRegistrations") || "[]")
-    const employee = employees.find((emp) => emp.uniqueCode === manualCode.toUpperCase())
+    const employee = employees.find((emp) => emp.uniqueCode === manualCode.trim())
 
     if (!employee) {
-      setScanResult({
-        success: false,
-        message: "Mã không hợp lệ. Vui lòng kiểm tra lại.",
-      })
+      setScanResult({ success: false, message: "Mã không hợp lệ hoặc không tìm thấy nhân viên." })
       return
     }
 
-    // Sử dụng logic tương tự như QR scan
-    if (employee.status === "pending") {
-      setScanResult({
-        success: false,
-        message: "Tài khoản của bạn đang chờ admin duyệt. Vui lòng thử lại sau.",
-      })
-      return
+    // Reuse the logic from QR scan by creating a compatible data object
+    const qrData = { type: "employee_qr", employeeId: employee.id }
+    
+    // Tạo một hàm nội tuyến để xử lý phần còn lại, tránh lặp code
+    const processAttendance = (emp: EmployeeRegistration) => {
+      if (emp.status === "pending") {
+        setScanResult({
+          success: false,
+          message: "Tài khoản của bạn đang chờ admin duyệt. Vui lòng thử lại sau.",
+        })
+        return
+      }
+
+      if (emp.status === "rejected") {
+        setScanResult({
+          success: false,
+          message: "Tài khoản của bạn đã bị từ chối. Vui lòng liên hệ admin.",
+        })
+        return
+      }
+
+      if (emp.status === "suspended") {
+        const now = new Date()
+        const suspensionEndDate = emp.suspensionEnd ? new Date(emp.suspensionEnd) : null
+
+        if (suspensionEndDate && now > suspensionEndDate && emp.suspensionEnd !== 'permanent') {
+          const updatedEmployees = employees.map(e => 
+            e.id === emp.id ? { ...e, status: "approved", suspensionReason: undefined, suspensionStart: undefined, suspensionEnd: undefined } : e
+          )
+          localStorage.setItem("employeeRegistrations", JSON.stringify(updatedEmployees))
+
+          // Gửi email thông báo
+          const restorationTemplate = emailTemplates.find(t => t.id === 'restoration')
+          if (restorationTemplate) {
+            const emailContent = restorationTemplate.content.replace(/{employeeName}/g, emp.name)
+            fetch('/api/send-email', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ to: emp.email, subject: restorationTemplate.subject, html: emailContent }),
+            }).catch(error => console.error("Lỗi gửi email tự động khôi phục:", error))
+          }
+
+          Object.assign(emp, updatedEmployees.find(e => e.id === emp.id))
+
+        } else {
+          setScanResult({
+            success: false,
+            message: `Tài khoản của bạn đã bị đình chỉ. Lý do: ${emp.suspensionReason || 'Không có lý do'}. Hiệu lực đến: ${
+              emp.suspensionEnd === "permanent" ? "Vĩnh viễn" : new Date(emp.suspensionEnd!).toLocaleString("vi-VN")
+            }`,
+          })
+          return
+        }
+      }
+
+      // Logic chấm công chính
+      const attendanceRecords: AttendanceRecord[] = JSON.parse(localStorage.getItem("attendanceRecords") || "[]")
+      const today = new Date().toDateString()
+      const todayRecords = attendanceRecords.filter(
+        (record) => record.employeeId === emp.id && new Date(record.timestamp).toDateString() === today,
+      )
+
+      const lastRecord = todayRecords[todayRecords.length - 1]
+      const action = !lastRecord || lastRecord.type === "check-out" ? "check-in" : "check-out"
+
+      const newRecord: AttendanceRecord = {
+        id: Date.now().toString(),
+        employeeId: emp.id,
+        employeeName: emp.name,
+        type: action,
+        timestamp: new Date().toISOString(),
+        location: "Văn phòng chính (Nhập tay)",
+      }
+
+      attendanceRecords.push(newRecord)
+      localStorage.setItem("attendanceRecords", JSON.stringify(attendanceRecords))
+
+      if (action === "check-out") {
+        const lastCheckIn = todayRecords.filter((r) => r.type === "check-in").pop()
+        if (lastCheckIn) {
+          const workTime = calculateWorkingTime(lastCheckIn.timestamp, new Date().toISOString())
+          setScanResult({
+            success: true,
+            message: `Chấm công ra thành công! Thời gian làm việc: ${workTime.hours} giờ ${workTime.minutes} phút`,
+            employee: emp,
+            action,
+            workingTime: workTime,
+            isShortWork: workTime.totalMinutes < 60,
+          })
+        }
+      } else {
+        setScanResult({
+          success: true,
+          message: "Chấm công vào thành công!",
+          employee: emp,
+          action,
+        })
+      }
     }
 
-    if (employee.status === "rejected") {
-      setScanResult({
-        success: false,
-        message: "Tài khoản của bạn đã bị từ chối. Vui lòng liên hệ admin.",
-      })
-      return
-    }
-
-    // Tiếp tục logic chấm công như QR scan...
-    const attendanceRecords: AttendanceRecord[] = JSON.parse(localStorage.getItem("attendanceRecords") || "[]")
-    const today = new Date().toDateString()
-    const todayRecords = attendanceRecords.filter(
-      (record) => record.employeeId === employee.id && new Date(record.timestamp).toDateString() === today,
-    )
-
-    const lastRecord = todayRecords[todayRecords.length - 1]
-    const action = !lastRecord || lastRecord.type === "check-out" ? "check-in" : "check-out"
-
-    const newRecord: AttendanceRecord = {
-      id: Date.now().toString(),
-      employeeId: employee.id,
-      employeeName: employee.name,
-      type: action,
-      timestamp: new Date().toISOString(),
-      location: "Văn phòng chính",
-    }
-
-    attendanceRecords.push(newRecord)
-    localStorage.setItem("attendanceRecords", JSON.stringify(attendanceRecords))
-
-    setScanResult({
-      success: true,
-      message: `Chấm công ${action === "check-in" ? "vào" : "ra"} thành công!`,
-      employee,
-      action,
-    })
-
+    processAttendance(employee)
     setShowManualInput(false)
     setManualCode("")
   }

@@ -19,7 +19,7 @@ export default function AdminLoginPage() {
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (username === "admin" && password === "admin") {
+    if (username === "admin-Giau" && password === "admin-Giau") {
       localStorage.setItem("isAdmin", "true")
       router.push("/admin")
     } else {
@@ -51,7 +51,7 @@ export default function AdminLoginPage() {
                   id="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="admin"
+                  placeholder="admin-Giau"
                   required
                 />
               </div>
@@ -63,7 +63,7 @@ export default function AdminLoginPage() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="admin"
+                  placeholder="admin-Giau"
                   required
                 />
               </div>

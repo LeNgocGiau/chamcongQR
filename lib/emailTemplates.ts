@@ -138,5 +138,40 @@ export const emailTemplates: EmailTemplate[] = [
         <p style="margin-top: 20px;">Trân trọng,</p>
         <p><strong>Phòng nhân sự</strong></p>
       </div>`
+  },
+  {
+    id: "accountDeleted",
+    name: "Thông báo xóa tài khoản",
+    subject: "Thông báo: Tài khoản của bạn đã bị xóa",
+    content: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+        <h2 style="color: #d32f2f; text-align: center;">Thông báo xóa tài khoản</h2>
+        <p>Kính gửi <strong>{employeeName}</strong>,</p>
+        <p>Chúng tôi xin thông báo rằng tài khoản của bạn đã bị xóa khỏi hệ thống chấm công.</p>
+        <div style="background-color: #ffebee; padding: 15px; border-radius: 5px; margin: 15px 0;">
+          <p>Tất cả dữ liệu chấm công của bạn cũng đã được xóa khỏi hệ thống.</p>
+          <p><strong>Thời gian xóa:</strong> {deletedTime}</p>
+        </div>
+        <p>Nếu bạn có bất kỳ thắc mắc nào, vui lòng liên hệ với phòng nhân sự để biết thêm thông tin chi tiết.</p>
+        <p style="margin-top: 20px;">Trân trọng,</p>
+        <p><strong>Phòng nhân sự</strong></p>
+      </div>`
+  },
+  {
+    id: "attendanceDeleted",
+    name: "Thông báo xóa báo cáo chấm công",
+    subject: "Thông báo: Bản ghi chấm công của bạn đã bị xóa",
+    content: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+        <h2 style="color: #d32f2f; text-align: center;">Thông báo xóa bản ghi chấm công</h2>
+        <p>Kính gửi <strong>{employeeName}</strong>,</p>
+        <p>Chúng tôi xin thông báo rằng bản ghi chấm công của bạn đã bị xóa khỏi hệ thống.</p>
+        <div style="background-color: #ffebee; padding: 15px; border-radius: 5px; margin: 15px 0;">
+          <p><strong>Ngày chấm công:</strong> {attendanceDate}</p>
+          <p><strong>Loại chấm công:</strong> {attendanceType}</p>
+          <p><strong>Thời điểm chấm công:</strong> {attendanceTime}</p>
+        </div>
+        <p>Nếu bạn có bất kỳ thắc mắc nào, vui lòng liên hệ với phòng nhân sự để biết thêm thông tin chi tiết.</p>
+        <p style="margin-top: 20px;">Trân trọng,</p>
+        <p><strong>Phòng nhân sự</strong></p>
+      </div>`
   }
 ] 

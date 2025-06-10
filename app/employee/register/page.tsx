@@ -303,8 +303,9 @@ export default function EmployeeRegisterPage() {
     const existingEmployees = JSON.parse(localStorage.getItem("employeeRegistrations") || "[]")
     // Kiểm tra mã không trùng lặp
     const codeExists = existingEmployees.some((emp: any) => emp.uniqueCode === uniqueCode)
+    const employeeIdExists = existingEmployees.some((emp: any) => emp.id === newEmployeeId)
 
-    if (codeExists) {
+    if (codeExists || employeeIdExists) {
       // Tạo lại mã nếu trùng
       setIsSubmitting(false);
       return handleSubmit(e)
@@ -322,17 +323,17 @@ export default function EmployeeRegisterPage() {
     }
 
     try {
-    existingEmployees.push(newEmployee)
-    localStorage.setItem("employeeRegistrations", JSON.stringify(existingEmployees))
+      existingEmployees.push(newEmployee)
+      localStorage.setItem("employeeRegistrations", JSON.stringify(existingEmployees))
 
-    setEmployeeId(newEmployeeId)
-    setGeneratedQR(qrCodeData)
+      setEmployeeId(newEmployeeId)
+      setGeneratedQR(qrCodeData)
 
       // Show success alert
       showAlert("Đăng ký thành công! Đang tạo mã QR...", "success");
-    
-    // Gửi email sau khi đăng ký thành công
-    await sendRegistrationEmail(newEmployee, qrCodeData, uniqueCode)
+      
+      // Gửi email sau khi đăng ký thành công
+      await sendRegistrationEmail(newEmployee, qrCodeData, uniqueCode)
       
       // Complete the submission
       setIsSubmitted(true)
@@ -592,6 +593,7 @@ export default function EmployeeRegisterPage() {
                 <h4 className="font-medium text-yellow-800 mb-2">Lưu ý quan trọng:</h4>
                 <ul className="text-sm text-yellow-700 space-y-1">
                   <li>• Lưu mã QR này vào điện thoại của bạn</li>
+                  <li>• Mã QR này là duy nhất và được sử dụng để xác thực danh tính của bạn</li>
                   <li>• Tài khoản đang chờ admin duyệt</li>
                   <li>• Sau khi được duyệt, bạn có thể dùng mã QR để chấm công</li>
                   <li>• Nếu bị từ chối, mã QR sẽ không còn hiệu lực</li>

@@ -21,7 +21,6 @@ export function QrScanner({ onScan }: QrScannerProps) {
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([])
   const [selectedCamera, setSelectedCamera] = useState<string>("")
   const streamRef = useRef<MediaStream | null>(null)
-  const requestRef = useRef<number | undefined>(undefined)
   const [videoLoaded, setVideoLoaded] = useState(false)
   const [videoStats, setVideoStats] = useState<{width: number, height: number} | null>(null)
   const debugTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -53,11 +52,6 @@ export function QrScanner({ onScan }: QrScannerProps) {
       } catch (e) {
         console.log("Error resetting video:", e)
       }
-    }
-    
-    if (requestRef.current) {
-      cancelAnimationFrame(requestRef.current)
-      requestRef.current = undefined
     }
     
     if (debugTimeoutRef.current) {
@@ -128,8 +122,8 @@ export function QrScanner({ onScan }: QrScannerProps) {
     }
   }, [stopCamera])
 
-  // Scan for QR in video frames
-  const scanLoop = useCallback(() => {
+  // Function to capture and scan QR code on button press
+  const captureAndScanQR = () => {
     if (!videoRef.current || !canvasRef.current || status !== "scanning") {
       return
     }
@@ -139,8 +133,7 @@ export function QrScanner({ onScan }: QrScannerProps) {
     
     // Kiểm tra video đã sẵn sàng chưa
     if (video.readyState !== video.HAVE_ENOUGH_DATA) {
-      // Try again later
-      requestRef.current = requestAnimationFrame(scanLoop)
+      setError("Video chưa sẵn sàng. Vui lòng đợi...")
       return
     }
     
@@ -149,14 +142,8 @@ export function QrScanner({ onScan }: QrScannerProps) {
     const videoHeight = video.videoHeight
     
     if (videoWidth === 0 || videoHeight === 0) {
-      // Không có khung hình hợp lệ
-      requestRef.current = requestAnimationFrame(scanLoop)
+      setError("Không có khung hình hợp lệ")
       return
-    }
-    
-    // Update stats
-    if (!videoStats || videoStats.width !== videoWidth || videoStats.height !== videoHeight) {
-      setVideoStats({ width: videoWidth, height: videoHeight })
     }
 
     // Set canvas dimensions
@@ -183,22 +170,23 @@ export function QrScanner({ onScan }: QrScannerProps) {
             console.log("QR code found:", code.data)
             // First stop camera
             stopCamera()
-            // Directly send data to parent component without any simulation
+            // Send data to parent component
             console.log("Sending QR data to parent component:", code.data)
             onScan(code.data)
             return
+          } else {
+            setError("Không tìm thấy mã QR trong hình. Vui lòng thử lại.")
           }
         } catch (err) {
           console.error("QR scan error:", err)
+          setError("Lỗi khi quét mã QR. Vui lòng thử lại.")
         }
       } catch (err) {
         console.error("Canvas draw error:", err)
+        setError("Lỗi khi xử lý hình ảnh. Vui lòng thử lại.")
       }
     }
-    
-    // Continue scanning
-    requestRef.current = requestAnimationFrame(scanLoop)
-  }, [onScan, stopCamera, status])
+  }
 
   // Function to monitor video element status
   const startVideoMonitoring = useCallback(() => {
@@ -283,7 +271,6 @@ export function QrScanner({ onScan }: QrScannerProps) {
             .then(() => {
               console.log("Video playback started")
               setStatus("scanning")
-              requestRef.current = requestAnimationFrame(scanLoop)
               startVideoMonitoring()
             })
             .catch(err => {
@@ -352,7 +339,6 @@ export function QrScanner({ onScan }: QrScannerProps) {
                   console.log("Video playback started (retry)")
                   setVideoLoaded(true)
                   setStatus("scanning")
-                  requestRef.current = requestAnimationFrame(scanLoop)
                   startVideoMonitoring()
                 })
                 .catch(playErr => {
@@ -390,7 +376,7 @@ export function QrScanner({ onScan }: QrScannerProps) {
       setStatus("error")
       stopCamera()
     }
-  }, [selectedCamera, status, scanLoop, stopCamera, startVideoMonitoring])
+  }, [selectedCamera, status, stopCamera, startVideoMonitoring])
 
   useEffect(() => {
     listCameras()
@@ -402,33 +388,6 @@ export function QrScanner({ onScan }: QrScannerProps) {
   const handleRefresh = () => {
     stopCamera()
     listCameras()
-  }
-
-  const handleManualInput = () => {
-    const qrData = prompt("Nhập dữ liệu QR code:")
-    if (qrData) {
-      // Directly send manual input to parent
-      onScan(qrData)
-    }
-  }
-
-  const simulateQRScan = () => {
-    const employees = JSON.parse(localStorage.getItem("employeeRegistrations") || "[]")
-    const approvedEmployees = employees.filter((emp: any) => emp.status === "approved")
-
-    if (approvedEmployees.length === 0) {
-      const mockQRData = {
-        employeeId: "NV001",
-        type: "employee_qr",
-        generatedAt: new Date().toISOString(),
-      }
-      // Send mock data to parent
-      onScan(JSON.stringify(mockQRData))
-    } else {
-      const randomEmployee = approvedEmployees[Math.floor(Math.random() * approvedEmployees.length)]
-      // Send random employee QR data to parent
-      onScan(randomEmployee.qrCode)
-    }
   }
 
   const forcePlayVideo = () => {
@@ -553,17 +512,18 @@ export function QrScanner({ onScan }: QrScannerProps) {
           )}
         </Button>
 
-        <Button onClick={() => simulateQRScan()} className="w-full">
-          <Camera className="w-4 h-4 mr-2" />
-          Mô phỏng quét QR (Demo)
-        </Button>
-
-        <Button variant="outline" onClick={handleManualInput} className="w-full">
-          Nhập thủ công
-        </Button>
+        {isScanning && (
+          <Button 
+            onClick={captureAndScanQR} 
+            className="w-full bg-green-600 hover:bg-green-700"
+          >
+            <Camera className="w-4 h-4 mr-2" />
+            Chụp để quét mã QR
+          </Button>
+        )}
       </div>
 
-      <p className="text-xs text-gray-500 text-center">Đưa camera gần mã QR để quét tự động</p>
+      <p className="text-xs text-gray-500 text-center">Đưa mã QR vào khung hình và bấm nút chụp để quét</p>
     </div>
   )
 }

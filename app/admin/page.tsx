@@ -265,14 +265,15 @@ export default function AdminPage() {
   }
 
   const handleDeleteEmployee = (employeeId: string) => {
-    const employeeName = employees.find(emp => emp.id === employeeId)?.name || 'Nhân viên';
+    const employee = employees.find(emp => emp.id === employeeId);
+    const employeeName = employee?.name || 'Nhân viên';
     
     confirm({
       title: "Xóa nhân viên",
       message: `Bạn có chắc chắn muốn xóa ${employeeName}? Tất cả dữ liệu chấm công của nhân viên này cũng sẽ bị xóa và không thể khôi phục.`,
       confirmLabel: "Xóa",
       type: "delete",
-      onConfirm: () => {
+      onConfirm: async () => {
         const updatedEmployees = employees.filter((emp) => emp.id !== employeeId)
         setEmployees(updatedEmployees)
         localStorage.setItem("employeeRegistrations", JSON.stringify(updatedEmployees))
@@ -281,6 +282,33 @@ export default function AdminPage() {
         const updatedRecords = attendanceRecords.filter((record) => record.employeeId !== employeeId)
         setAttendanceRecords(updatedRecords)
         localStorage.setItem("attendanceRecords", JSON.stringify(updatedRecords))
+
+        // Gửi email thông báo xóa tài khoản
+        if (employee && employee.email) {
+          const deleteTemplate = emailTemplates.find(t => t.id === 'accountDeleted')
+          if (deleteTemplate) {
+            const deletedTime = new Date().toLocaleString("vi-VN")
+            
+            let emailContent = deleteTemplate.content
+              .replace(/{employeeName}/g, employeeName)
+              .replace(/{deletedTime}/g, deletedTime)
+
+            try {
+              await fetch('/api/send-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  to: employee.email,
+                  subject: deleteTemplate.subject,
+                  html: emailContent,
+                }),
+              });
+              console.log('Email thông báo xóa tài khoản đã được gửi đến:', employee.email);
+            } catch (error) {
+              console.error("Lỗi gửi email thông báo xóa tài khoản:", error);
+            }
+          }
+        }
 
         showAlert("Đã xóa nhân viên và dữ liệu chấm công!", "success")
       }
@@ -940,7 +968,7 @@ export default function AdminPage() {
       message: `Bạn có chắc chắn muốn xóa ${selectedIds.length} bản ghi chấm công đã chọn?`,
       confirmLabel: "Xóa",
       type: "delete",
-      onConfirm: () => {
+      onConfirm: async () => {
         // Save records being deleted for undo functionality
         const recordsToDelete = attendanceRecords.filter(record => selectedIds.includes(record.id));
         setDeletedRecords(recordsToDelete);
@@ -949,6 +977,72 @@ export default function AdminPage() {
         const updatedRecords = attendanceRecords.filter(record => !selectedIds.includes(record.id));
         setAttendanceRecords(updatedRecords);
         localStorage.setItem("attendanceRecords", JSON.stringify(updatedRecords));
+        
+        // Gửi email thông báo cho từng nhân viên bị xóa bản ghi
+        const deleteTemplate = emailTemplates.find(t => t.id === 'attendanceDeleted');
+        
+        if (deleteTemplate) {
+          // Nhóm các bản ghi theo nhân viên để gửi email một lần cho mỗi nhân viên
+          const recordsByEmployee: Record<string, AttendanceRecord[]> = {};
+          
+          recordsToDelete.forEach(record => {
+            if (!recordsByEmployee[record.employeeId]) {
+              recordsByEmployee[record.employeeId] = [];
+            }
+            recordsByEmployee[record.employeeId].push(record);
+          });
+          
+          // Gửi email thông báo cho từng nhân viên
+          for (const [employeeId, records] of Object.entries(recordsByEmployee)) {
+            const employee = employees.find(emp => emp.id === employeeId);
+            
+            if (employee && employee.email) {
+              try {
+                // Nếu có nhiều bản ghi, gửi thông tin về tất cả các bản ghi trong một email
+                let recordsInfo = '';
+                records.forEach(record => {
+                  const attendanceDate = new Date(record.timestamp).toLocaleDateString("vi-VN");
+                  const attendanceTime = new Date(record.timestamp).toLocaleTimeString("vi-VN");
+                  const attendanceType = record.type === "check-in" ? "Chấm công vào" : "Chấm công ra";
+                  
+                  recordsInfo += `<div style="margin-bottom: 10px; padding: 5px;">
+                    <p><strong>Ngày chấm công:</strong> ${attendanceDate}</p>
+                    <p><strong>Thời điểm chấm công:</strong> ${attendanceTime}</p>
+                    <p><strong>Loại chấm công:</strong> ${attendanceType}</p>
+                  </div>`;
+                });
+                
+                // Tạo nội dung email hoàn chỉnh với thông tin các bản ghi
+                let emailContent = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+                  <h2 style="color: #d32f2f; text-align: center;">Thông báo xóa bản ghi chấm công</h2>
+                  <p>Kính gửi <strong>${employee.name}</strong>,</p>
+                  <p>Chúng tôi xin thông báo rằng ${records.length > 1 ? 'các' : ''} bản ghi chấm công của bạn đã bị xóa khỏi hệ thống.</p>
+                  <div style="background-color: #ffebee; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                    <p><strong>${records.length > 1 ? 'Các bản' : 'Bản'} ghi đã bị xóa:</strong></p>
+                    ${recordsInfo}
+                  </div>
+                  <p>Nếu bạn có bất kỳ thắc mắc nào, vui lòng liên hệ với phòng nhân sự để biết thêm thông tin chi tiết.</p>
+                  <p style="margin-top: 20px;">Trân trọng,</p>
+                  <p><strong>Phòng nhân sự</strong></p>
+                </div>`;
+                
+                await fetch('/api/send-email', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    to: employee.email,
+                    subject: `${records.length > 1 ? records.length + ' bản ghi' : 'Bản ghi'} chấm công của bạn đã bị xóa`,
+                    html: emailContent,
+                  }),
+                });
+                
+                console.log(`Email thông báo xóa đã được gửi đến: ${employee.email} (${records.length} bản ghi)`);
+              } catch (error) {
+                console.error("Lỗi gửi email thông báo xóa bản ghi chấm công:", error);
+              }
+            }
+          }
+        }
         
         // Reset selection
         setSelectedRecords({});
@@ -1065,7 +1159,7 @@ export default function AdminPage() {
 
         {/* Main Content */}
         <Tabs defaultValue="pending-approval" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 lg:grid-cols-8">
+          <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
             <TabsTrigger value="pending-approval">
               <UserCheck className="w-4 h-4 mr-2" />
               Chờ duyệt tài khoản
@@ -1086,10 +1180,10 @@ export default function AdminPage() {
               <Download className="w-4 h-4 mr-2" />
               Xuất dữ liệu
             </TabsTrigger>
-            <TabsTrigger value="reports" onClick={() => router.push("/admin/reports")}>
+            {/* <TabsTrigger value="reports" onClick={() => router.push("/admin/reports")}>
               <BarChart3 className="w-4 h-4 mr-2" />
               Báo cáo chi tiết
-            </TabsTrigger>
+            </TabsTrigger> */}
             <TabsTrigger value="notifications">
               <Mail className="w-4 h-4 mr-2" />
               Thông báo
@@ -1448,7 +1542,7 @@ export default function AdminPage() {
                                           message: `Bạn có chắc chắn muốn xóa bản ghi chấm công này của nhân viên ${record.employeeName}?`,
                                           confirmLabel: "Xóa",
                                           type: "delete",
-                                          onConfirm: () => {
+                                          onConfirm: async () => {
                                             const updatedRecords = attendanceRecords.filter(
                                               (r) => r.id !== record.id,
                                             )
@@ -1457,6 +1551,41 @@ export default function AdminPage() {
                                               "attendanceRecords",
                                               JSON.stringify(updatedRecords),
                                             )
+                                            
+                                            // Tìm thông tin nhân viên
+                                            const employee = employees.find(emp => emp.id === record.employeeId);
+                                            
+                                            // Gửi email thông báo xóa bản ghi chấm công
+                                            if (employee && employee.email) {
+                                              const deleteTemplate = emailTemplates.find(t => t.id === 'attendanceDeleted')
+                                              if (deleteTemplate) {
+                                                const attendanceDate = new Date(record.timestamp).toLocaleDateString("vi-VN")
+                                                const attendanceTime = new Date(record.timestamp).toLocaleTimeString("vi-VN")
+                                                const attendanceType = record.type === "check-in" ? "Chấm công vào" : "Chấm công ra"
+                                                
+                                                let emailContent = deleteTemplate.content
+                                                  .replace(/{employeeName}/g, employee.name)
+                                                  .replace(/{attendanceDate}/g, attendanceDate)
+                                                  .replace(/{attendanceTime}/g, attendanceTime)
+                                                  .replace(/{attendanceType}/g, attendanceType)
+                                                
+                                                try {
+                                                  await fetch('/api/send-email', {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({
+                                                      to: employee.email,
+                                                      subject: deleteTemplate.subject,
+                                                      html: emailContent,
+                                                    }),
+                                                  });
+                                                  console.log('Email thông báo xóa bản ghi chấm công đã được gửi đến:', employee.email);
+                                                } catch (error) {
+                                                  console.error("Lỗi gửi email thông báo xóa bản ghi chấm công:", error);
+                                                }
+                                              }
+                                            }
+                                            
                                             showAlert("Đã xóa bản ghi chấm công", "success")
                                           }
                                         });

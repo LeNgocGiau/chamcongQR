@@ -607,7 +607,7 @@ export default function ReportsPage() {
         </Card>
 
         <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="overview">
               <BarChart3 className="w-4 h-4 mr-2" />
               Tổng quan

@@ -429,6 +429,19 @@ export default function AttendancePage() {
         return;
       }
 
+      // Xác minh mã QR thuộc về nhân viên đã đăng ký
+      const employeesList = JSON.parse(localStorage.getItem("employeeRegistrations") || "[]");
+      const employeeFromList = employeesList.find((emp: EmployeeRegistration) => emp.id === qrData.employeeId);
+      
+      if (!employeeFromList) {
+        setScanResult({
+          success: false,
+          message: "Mã QR không khớp với bất kỳ nhân viên nào trong hệ thống.",
+        });
+        setShowScanner(false);
+        return;
+      }
+
       if (employee.status === "suspended") {
         const now = new Date()
         const suspensionEndDate = employee.suspensionEnd ? new Date(employee.suspensionEnd) : null
@@ -479,7 +492,7 @@ export default function AttendancePage() {
       const lastRecord = todayRecords[todayRecords.length - 1];
       const action = !lastRecord || lastRecord.type === "check-out" ? "check-in" : "check-out";
 
-      // Thay vì lưu ngay, chuyển sang bước chụp ảnh
+      // Thay vì lưu ngay, chuyển sang bước chụp ảnh xác thực khuôn mặt
       setTempEmployeeData({ employee, action });
       setShowScanner(false);
       setShowFaceCapture(true);
@@ -506,6 +519,18 @@ export default function AttendancePage() {
 
     if (!employee) {
       setScanResult({ success: false, message: "Mã không hợp lệ hoặc không tìm thấy nhân viên." });
+      return;
+    }
+
+    // Xác minh mã nhân viên có tồn tại trong danh sách nhân viên
+    const employeesList = JSON.parse(localStorage.getItem("employeeRegistrations") || "[]");
+    const employeeFromList = employeesList.find((emp: EmployeeRegistration) => emp.id === employee.id);
+    
+    if (!employeeFromList) {
+      setScanResult({
+        success: false,
+        message: "Không tìm thấy thông tin nhân viên trong hệ thống.",
+      });
       return;
     }
 
@@ -570,7 +595,7 @@ export default function AttendancePage() {
     const lastRecord = todayRecords[todayRecords.length - 1];
     const action = !lastRecord || lastRecord.type === "check-out" ? "check-in" : "check-out";
 
-    // Chuyển sang bước chụp ảnh
+    // Chuyển sang bước chụp ảnh xác thực khuôn mặt
     setTempEmployeeData({ employee, action });
     setShowManualInput(false);
     setManualCode("");

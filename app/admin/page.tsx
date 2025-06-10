@@ -669,6 +669,7 @@ export default function AdminPage() {
 
     const suspensionStart = suspensionStartDate.toISOString();
     const suspensionEnd = suspensionEndDate ? suspensionEndDate.toISOString() : "permanent";
+    const suspensionEndString = suspensionEndDate ? suspensionEndDate.toLocaleString("vi-VN") : "Vĩnh viễn";
     
     if (!suspensionReason || !suspensionStart || !suspensionEnd) {
       showAlert("Vui lòng nhập đầy đủ thông tin đình chỉ", "warning");
@@ -680,7 +681,7 @@ export default function AdminPage() {
       message: `Bạn có chắc chắn muốn đình chỉ tài khoản của nhân viên ${selectedEmployeeForSuspension.name}?`,
       confirmLabel: "Đình chỉ",
       type: "warning",
-      onConfirm: () => {
+      onConfirm: async () => {
         const updatedEmployees = employees.map((emp) =>
           emp.id === selectedEmployeeForSuspension.id
             ? {
@@ -695,6 +696,33 @@ export default function AdminPage() {
 
         setEmployees(updatedEmployees);
         localStorage.setItem("employeeRegistrations", JSON.stringify(updatedEmployees));
+        
+        // Gửi email thông báo đình chỉ
+        const suspensionTemplate = emailTemplates.find(t => t.id === 'suspension')
+        if (suspensionTemplate) {
+          let emailContent = suspensionTemplate.content
+            .replace(/{employeeName}/g, selectedEmployeeForSuspension.name)
+            .replace(/{suspensionReason}/g, suspensionReason)
+            .replace(/{suspensionStart}/g, suspensionStartDate.toLocaleString("vi-VN"))
+            .replace(/{suspensionEnd}/g, suspensionEndString)
+
+          try {
+            await fetch('/api/send-email', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                to: selectedEmployeeForSuspension.email,
+                subject: suspensionTemplate.subject,
+                html: emailContent,
+              }),
+            });
+            console.log('Email đình chỉ đã được gửi đến:', selectedEmployeeForSuspension.email);
+          } catch (error) {
+            console.error("Lỗi gửi email đình chỉ:", error);
+            showAlert("Đã xảy ra lỗi khi gửi email thông báo đình chỉ", "error");
+          }
+        }
+
         setSelectedEmployeeForSuspension(null);
 
         showAlert(`Đã đình chỉ tài khoản của nhân viên ${selectedEmployeeForSuspension.name}.`, "info");
@@ -717,7 +745,7 @@ export default function AdminPage() {
       message: `Bạn có chắc chắn muốn khôi phục tài khoản của nhân viên ${employee.name}?`,
       confirmLabel: "Khôi phục",
       type: "info",
-      onConfirm: () => {
+      onConfirm: async () => {
         const updatedEmployees = employees.map((emp) =>
           emp.id === employeeId
             ? {
@@ -732,6 +760,28 @@ export default function AdminPage() {
 
         setEmployees(updatedEmployees);
         localStorage.setItem("employeeRegistrations", JSON.stringify(updatedEmployees));
+        
+        // Gửi email thông báo khôi phục
+        const restorationTemplate = emailTemplates.find(t => t.id === 'restoration');
+        if (restorationTemplate) {
+          const emailContent = restorationTemplate.content.replace(/{employeeName}/g, employee.name);
+          try {
+            await fetch('/api/send-email', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                to: employee.email,
+                subject: restorationTemplate.subject,
+                html: emailContent,
+              }),
+            });
+            console.log('Email khôi phục đã được gửi đến:', employee.email);
+          } catch (error) {
+            console.error("Lỗi gửi email khôi phục:", error);
+            showAlert("Đã xảy ra lỗi khi gửi email thông báo khôi phục", "error");
+          }
+        }
+        
         showAlert("Đã khôi phục tài khoản nhân viên.", "success");
       }
     });

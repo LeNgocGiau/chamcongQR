@@ -4,13 +4,13 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Separator } from "@/components/ui/separator"
 import {
   LogOut,
@@ -28,12 +28,26 @@ import {
   Mail,
   Send,
   FileText,
+  User,
+  History,
+  ChevronDown,
+  UserMinus,
+  CalendarDays,
+  ChevronRight,
+  Filter,
+  FileSpreadsheet,
   UserX,
   UserCheck2,
+  UserRound,
+  X,
+  Trash,
+  RotateCcw
 } from "lucide-react"
 import { emailTemplates } from "@/lib/emailTemplates"
 import { useCustomAlert } from "@/components/custom-alert"
 import { useCustomConfirm } from "@/components/custom-confirm"
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table"
+import Link from "next/link"
 
 // Thêm interface cho EmployeeRegistration
 interface EmployeeRegistration {
@@ -59,8 +73,9 @@ interface AttendanceRecord {
   type: "check-in" | "check-out"
   timestamp: string
   location?: string
-  sentBy: string
+  sentBy?: string
   templateId?: string
+  faceImage?: string // Thêm trường để lưu hình ảnh khuôn mặt
 }
 
 // Templates email
@@ -83,30 +98,54 @@ interface SentEmail {
 }
 
 export default function AdminPage() {
+  const [activeTab, setActiveTab] = useState("overview")
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0])
   const [employees, setEmployees] = useState<EmployeeRegistration[]>([])
+  const [pendingEmployees, setPendingEmployees] = useState<EmployeeRegistration[]>([])
+  const [approvedEmployees, setApprovedEmployees] = useState<EmployeeRegistration[]>([])
+  const [rejectedEmployees, setRejectedEmployees] = useState<EmployeeRegistration[]>([])
+  const [suspendedEmployees, setSuspendedEmployees] = useState<EmployeeRegistration[]>([])
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([])
   const [searchTerm, setSearchTerm] = useState("")
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0])
-  const [selectedEmployee, setSelectedEmployee] = useState<EmployeeRegistration | null>(null)
-  const [selectedEmailTemplate, setSelectedEmailTemplate] = useState<string | null>(null)
+  const [selectedTemplate, setSelectedTemplate] = useState<string>("")
   const [emailSubject, setEmailSubject] = useState("")
   const [emailContent, setEmailContent] = useState("")
+  const [selectedDepartment, setSelectedDepartment] = useState<string>("")
   const [selectedEmployees, setSelectedEmployees] = useState<Record<string, boolean>>({})
   const [selectAllEmployees, setSelectAllEmployees] = useState(false)
-  const [selectedDepartment, setSelectedDepartment] = useState<string | null>(null)
-  const [showPreview, setShowPreview] = useState(false)
-  const [sendingEmails, setSendingEmails] = useState(false)
-  const [sentEmails, setSentEmails] = useState<SentEmail[]>([])
+  const [previewEmail, setPreviewEmail] = useState<{
+    subject: string
+    content: string
+    employee?: EmployeeRegistration
+  } | null>(null)
+  const [isSending, setIsSending] = useState(false)
+  const [selectedEmailTemplate, setSelectedEmailTemplate] = useState<string>("absent")
+  const [emailHistory, setEmailHistory] = useState<SentEmail[]>([])
+  const [showSuspendModal, setShowSuspendModal] = useState(false)
+  const [suspensionEmployee, setSuspensionEmployee] = useState<EmployeeRegistration | null>(null)
+  const [suspensionReason, setSuspensionReason] = useState("")
+  const [suspensionDuration, setSuspensionDuration] = useState<"1day" | "3days" | "7days" | "14days" | "30days" | "permanent">("1day")
+  const [showImageModal, setShowImageModal] = useState(false)
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
+  const [selectedAttendanceInfo, setSelectedAttendanceInfo] = useState<{
+    employeeName: string;
+    timestamp: string;
+    type: "check-in" | "check-out";
+  } | null>(null)
+  // New state for selected records (for batch deletion)
+  const [selectedRecords, setSelectedRecords] = useState<Record<string, boolean>>({})
+  const [selectAllRecords, setSelectAllRecords] = useState(false)
+  // New state for deleted records (for undo functionality)
+  const [deletedRecords, setDeletedRecords] = useState<AttendanceRecord[]>([])
+  const [showUndoAlert, setShowUndoAlert] = useState(false)
+  // Adding missing state variables
+  const [statusFilter, setStatusFilter] = useState("all")
   const [subjectSearchTerm, setSubjectSearchTerm] = useState("")
   const [startDateFilter, setStartDateFilter] = useState("")
   const [endDateFilter, setEndDateFilter] = useState("")
   const [emailCardSearchTerms, setEmailCardSearchTerms] = useState<Record<string, string>>({})
-  const [statusFilter, setStatusFilter] = useState("all")
-  const [selectedEmployeeForSuspension, setSelectedEmployeeForSuspension] = useState<EmployeeRegistration | null>(null)
-  const [suspensionReason, setSuspensionReason] = useState("")
-  const [suspensionDuration, setSuspensionDuration] = useState<string>("12h")
-  const [customSuspensionStart, setCustomSuspensionStart] = useState("")
-  const [customSuspensionEnd, setCustomSuspensionEnd] = useState("")
+  const [selectedEmployee, setSelectedEmployee] = useState<EmployeeRegistration | null>(null)
+  
   const router = useRouter()
   const { showAlert } = useCustomAlert();
   const { confirm } = useCustomConfirm();
@@ -120,6 +159,16 @@ export default function AdminPage() {
 
     loadData()
   }, [router])
+
+  useEffect(() => {
+    // Kiểm tra nếu không có tài khoản chờ duyệt và đang ở tab chờ duyệt, chuyển sang tab nhân viên
+    const pendingCount = employees.filter(emp => emp.status === "pending").length
+    if (pendingCount === 0 && activeTab === "pending-approval") {
+      setActiveTab("employees")
+      const employeesTab = document.querySelector('[data-value="employees"]') as HTMLElement
+      if (employeesTab) employeesTab.click()
+    }
+  }, [employees, activeTab])
 
   useEffect(() => {
     // Tự động cập nhật khi chọn template
@@ -170,7 +219,7 @@ export default function AdminPage() {
 
     setEmployees(empRegistrations)
     setAttendanceRecords(records)
-    setSentEmails(emailHistory)
+    setEmailHistory(emailHistory)
   }
 
   const handleApproveEmployee = (employeeId: string) => {
@@ -188,6 +237,10 @@ export default function AdminPage() {
         setEmployees(updatedEmployees)
         localStorage.setItem("employeeRegistrations", JSON.stringify(updatedEmployees))
         showAlert("Đã duyệt nhân viên thành công!", "success")
+        
+        // Chuyển tab sang Quản lý nhân viên
+        const employeesTab = document.querySelector('[data-value="employees"]') as HTMLElement;
+        if (employeesTab) employeesTab.click();
       }
     });
   }
@@ -547,7 +600,14 @@ export default function AdminPage() {
   }
 
   const handlePreviewEmail = () => {
-    setShowPreview(!showPreview)
+    const firstSelectedEmployeeId = Object.entries(selectedEmployees)
+      .find(([_, isSelected]) => isSelected === true)?.[0]
+    
+    setPreviewEmail({
+      subject: emailSubject,
+      content: emailContent,
+      employee: employees.find(emp => emp.id === firstSelectedEmployeeId)
+    })
   }
 
   const processEmailContent = (content: string, employee?: EmployeeRegistration) => {
@@ -586,8 +646,8 @@ export default function AdminPage() {
       .replace(/{terminationReason}/g, "Kết thúc hợp đồng")
       .replace(/{terminationProcedures}/g, "Bàn giao công việc, thiết bị công ty và hoàn tất thủ tục thanh toán")
       .replace(/{suspensionReason}/g, suspensionReason || "[Lý do đình chỉ]")
-      .replace(/{suspensionStart}/g, customSuspensionStart ? new Date(customSuspensionStart).toLocaleString('vi-VN') : "[Ngày bắt đầu]")
-      .replace(/{suspensionEnd}/g, customSuspensionEnd ? new Date(customSuspensionEnd).toLocaleString('vi-VN') : "[Ngày kết thúc]")
+      .replace(/{suspensionStart}/g, "[Ngày bắt đầu]")
+      .replace(/{suspensionEnd}/g, "[Ngày kết thúc]")
     
     return processedContent
   }
@@ -611,7 +671,7 @@ export default function AdminPage() {
       confirmLabel: "Gửi",
       type: "info",
       onConfirm: async () => {
-        setSendingEmails(true);
+        setIsSending(true);
         
         try {
           // Gửi riêng lẻ cho từng nhân viên (để cá nhân hóa nội dung)
@@ -647,12 +707,12 @@ export default function AdminPage() {
             recipients: successfulEmails,
             sentAt: new Date().toISOString(),
             sentBy: "Admin",
-            templateId: selectedEmailTemplate && selectedEmailTemplate !== "new" ? selectedEmailTemplate : undefined
+            templateId: selectedEmailTemplate && typeof selectedEmailTemplate === "string" && selectedEmailTemplate !== "new" ? selectedEmailTemplate : undefined
           }
           
-          const updatedSentEmails = [...sentEmails, newEmailRecord]
-          setSentEmails(updatedSentEmails)
-          localStorage.setItem("sentEmails", JSON.stringify(updatedSentEmails))
+          const updatedEmailHistory = [...emailHistory, newEmailRecord]
+          setEmailHistory(updatedEmailHistory)
+          localStorage.setItem("sentEmails", JSON.stringify(updatedEmailHistory))
           
           // Hiển thị thông báo thành công
           showAlert(`Đã gửi thông báo thành công đến ${successfulEmails.length} nhân viên!`, "success")
@@ -660,61 +720,51 @@ export default function AdminPage() {
           // Reset form
           setEmailSubject("")
           setEmailContent("")
-          setSelectedEmailTemplate(null)
+          setSelectedEmailTemplate("absent")
           setSelectedEmployees({})
           setSelectAllEmployees(false)
-          setShowPreview(false)
+          setPreviewEmail(null)
         } catch (error) {
           console.error('Lỗi gửi email:', error)
           showAlert(`Có lỗi xảy ra khi gửi email: ${error instanceof Error ? error.message : String(error)}`, "error")
         } finally {
-          setSendingEmails(false)
+          setIsSending(false)
         }
       }
     });
   }
 
   const handleOpenSuspendModal = (employee: EmployeeRegistration) => {
-    setSelectedEmployeeForSuspension(employee)
+    setSuspensionEmployee(employee)
     setSuspensionReason("")
-    setSuspensionDuration("12h")
-    setCustomSuspensionStart("")
-    setCustomSuspensionEnd("")
+    setSuspensionDuration("1day")
   }
 
   const handleSuspendEmployee = async () => {
-    if (!selectedEmployeeForSuspension) return;
+    if (!suspensionEmployee) return;
 
     let suspensionStartDate = new Date();
     let suspensionEndDate: Date | null = new Date();
     
     switch (suspensionDuration) {
-      case "12h":
-        suspensionEndDate.setHours(suspensionEndDate.getHours() + 12);
+      case "1day":
+        suspensionEndDate.setDate(suspensionEndDate.getDate() + 1);
         break;
-      case "24h":
-        suspensionEndDate.setHours(suspensionEndDate.getHours() + 24);
-        break;
-      case "3d":
+      case "3days":
         suspensionEndDate.setDate(suspensionEndDate.getDate() + 3);
         break;
-      case "1w":
+      case "7days":
         suspensionEndDate.setDate(suspensionEndDate.getDate() + 7);
+        break;
+      case "14days":
+        suspensionEndDate.setDate(suspensionEndDate.getDate() + 14);
+        break;
+      case "30days":
+        suspensionEndDate.setDate(suspensionEndDate.getDate() + 30);
         break;
       case "permanent":
         suspensionEndDate = null; // Vĩnh viễn
         break;
-      case "custom":
-        if (customSuspensionStart && customSuspensionEnd) {
-          suspensionStartDate = new Date(customSuspensionStart);
-          suspensionEndDate = new Date(customSuspensionEnd);
-        } else {
-          showAlert("Vui lòng chọn ngày bắt đầu và kết thúc cho tùy chọn tùy chỉnh.", "warning");
-          return;
-        }
-        break;
-      default:
-        return;
     }
 
     const suspensionStart = suspensionStartDate.toISOString();
@@ -728,12 +778,12 @@ export default function AdminPage() {
 
     confirm({
       title: "Đình chỉ tài khoản",
-      message: `Bạn có chắc chắn muốn đình chỉ tài khoản của nhân viên ${selectedEmployeeForSuspension.name}?`,
+      message: `Bạn có chắc chắn muốn đình chỉ tài khoản của nhân viên ${suspensionEmployee.name}?`,
       confirmLabel: "Đình chỉ",
       type: "warning",
       onConfirm: async () => {
         const updatedEmployees = employees.map((emp) =>
-          emp.id === selectedEmployeeForSuspension.id
+          emp.id === suspensionEmployee.id
             ? {
                 ...emp,
                 status: "suspended" as const,
@@ -751,7 +801,7 @@ export default function AdminPage() {
         const suspensionTemplate = emailTemplates.find(t => t.id === 'suspension')
         if (suspensionTemplate) {
           let emailContent = suspensionTemplate.content
-            .replace(/{employeeName}/g, selectedEmployeeForSuspension.name)
+            .replace(/{employeeName}/g, suspensionEmployee.name)
             .replace(/{suspensionReason}/g, suspensionReason)
             .replace(/{suspensionStart}/g, suspensionStartDate.toLocaleString("vi-VN"))
             .replace(/{suspensionEnd}/g, suspensionEndString)
@@ -761,27 +811,25 @@ export default function AdminPage() {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                to: selectedEmployeeForSuspension.email,
+                to: suspensionEmployee.email,
                 subject: suspensionTemplate.subject,
                 html: emailContent,
               }),
             });
-            console.log('Email đình chỉ đã được gửi đến:', selectedEmployeeForSuspension.email);
+            console.log('Email đình chỉ đã được gửi đến:', suspensionEmployee.email);
           } catch (error) {
             console.error("Lỗi gửi email đình chỉ:", error);
             showAlert("Đã xảy ra lỗi khi gửi email thông báo đình chỉ", "error");
           }
         }
 
-        setSelectedEmployeeForSuspension(null);
+        setSuspensionEmployee(null);
 
-        showAlert(`Đã đình chỉ tài khoản của nhân viên ${selectedEmployeeForSuspension.name}.`, "info");
+        showAlert(`Đã đình chỉ tài khoản của nhân viên ${suspensionEmployee.name}.`, "info");
         
         // Reset form
         setSuspensionReason("");
-        setSuspensionDuration("24h");
-        setCustomSuspensionStart("");
-        setCustomSuspensionEnd("");
+        setSuspensionDuration("1day");
       }
     });
   };
@@ -835,6 +883,103 @@ export default function AdminPage() {
         showAlert("Đã khôi phục tài khoản nhân viên.", "success");
       }
     });
+  };
+
+  // Thêm function xử lý hiển thị hình ảnh
+  const handleViewFaceImage = (record: AttendanceRecord) => {
+    if (record.faceImage) {
+      setSelectedImage(record.faceImage)
+      setSelectedAttendanceInfo({
+        employeeName: record.employeeName,
+        timestamp: record.timestamp,
+        type: record.type
+      })
+      setShowImageModal(true)
+    } else {
+      showAlert("Không có hình ảnh xác thực cho lần chấm công này", "info")
+    }
+  }
+
+  // Handle select record
+  const handleSelectRecord = (recordId: string, checked: boolean) => {
+    setSelectedRecords(prev => ({
+      ...prev,
+      [recordId]: checked
+    }));
+  };
+
+  // Handle select all records checkbox
+  const handleSelectAllRecords = (checked: boolean) => {
+    setSelectAllRecords(checked);
+    
+    if (checked) {
+      const allRecords = getFilteredRecords().reduce((acc, record) => {
+        acc[record.id] = true;
+        return acc;
+      }, {} as Record<string, boolean>);
+      
+      setSelectedRecords(allRecords);
+    } else {
+      setSelectedRecords({});
+    }
+  };
+
+  // Handle batch deletion of selected records
+  const handleBatchDelete = () => {
+    const selectedIds = Object.entries(selectedRecords)
+      .filter(([_, isSelected]) => isSelected)
+      .map(([id]) => id);
+    
+    if (selectedIds.length === 0) {
+      showAlert("Vui lòng chọn ít nhất một bản ghi để xóa", "warning");
+      return;
+    }
+    
+    confirm({
+      title: `Xóa ${selectedIds.length} bản ghi chấm công`,
+      message: `Bạn có chắc chắn muốn xóa ${selectedIds.length} bản ghi chấm công đã chọn?`,
+      confirmLabel: "Xóa",
+      type: "delete",
+      onConfirm: () => {
+        // Save records being deleted for undo functionality
+        const recordsToDelete = attendanceRecords.filter(record => selectedIds.includes(record.id));
+        setDeletedRecords(recordsToDelete);
+        
+        // Remove the records
+        const updatedRecords = attendanceRecords.filter(record => !selectedIds.includes(record.id));
+        setAttendanceRecords(updatedRecords);
+        localStorage.setItem("attendanceRecords", JSON.stringify(updatedRecords));
+        
+        // Reset selection
+        setSelectedRecords({});
+        setSelectAllRecords(false);
+        
+        // Show success message with undo option
+        showAlert(`Đã xóa ${selectedIds.length} bản ghi chấm công`, "success");
+        setShowUndoAlert(true);
+        
+        // Auto-hide undo alert after 10 seconds
+        setTimeout(() => {
+          setShowUndoAlert(false);
+        }, 10000);
+      }
+    });
+  };
+
+  // Handle undo deletion
+  const handleUndoDelete = () => {
+    if (deletedRecords.length === 0) return;
+    
+    // Restore the deleted records
+    const restoredRecords = [...attendanceRecords, ...deletedRecords];
+    setAttendanceRecords(restoredRecords);
+    localStorage.setItem("attendanceRecords", JSON.stringify(restoredRecords));
+    
+    // Clear deleted records and hide undo alert
+    setDeletedRecords([]);
+    setShowUndoAlert(false);
+    
+    showAlert(`Đã khôi phục ${deletedRecords.length} bản ghi chấm công`, "success");
   };
 
   return (
@@ -919,11 +1064,11 @@ export default function AdminPage() {
         </div>
 
         {/* Main Content */}
-        <Tabs defaultValue="approvals" className="space-y-4">
+        <Tabs defaultValue="pending-approval" className="space-y-4">
           <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 lg:grid-cols-8">
-            <TabsTrigger value="approvals">
+            <TabsTrigger value="pending-approval">
               <UserCheck className="w-4 h-4 mr-2" />
-              Duyệt nhân viên ({stats.pendingApprovals})
+              Chờ duyệt tài khoản
             </TabsTrigger>
             <TabsTrigger value="employees">
               <Users className="w-4 h-4 mr-2" />
@@ -955,55 +1100,60 @@ export default function AdminPage() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="approvals">
+          <TabsContent value="pending-approval">
             <Card>
               <CardHeader>
-                <CardTitle>Đăng ký nhân viên</CardTitle>
-                <CardDescription>Xem xét và phê duyệt các đăng ký mới</CardDescription>
+                <CardTitle>Danh sách tài khoản chờ duyệt</CardTitle>
+                <CardDescription>
+                  Có {employees.filter(emp => emp.status === "pending").length} tài khoản đang chờ duyệt.
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {employees.filter((emp) => emp.status === "pending").length === 0 ? (
-                    <p className="text-center text-gray-500 py-8">Không có đăng ký nào chờ duyệt</p>
+                  {employees.filter(emp => emp.status === "pending").length === 0 ? (
+                    <div className="text-center py-8">
+                      <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
+                      <p className="text-gray-500">Không có tài khoản nào đang chờ duyệt</p>
+                    </div>
                   ) : (
                     employees
-                      .filter((emp) => emp.status === "pending")
+                      .filter(emp => emp.status === "pending")
                       .map((employee) => (
-                        <div key={employee.id} className="border rounded-lg p-4 space-y-3">
-                          <div className="flex items-start justify-between">
-                            <div className="space-y-1">
-                              <h3 className="font-medium">{employee.name}</h3>
-                              <p className="text-sm text-gray-600">Mã NV: {employee.id}</p>
-                              <p className="text-sm text-gray-600">Email: {employee.email}</p>
-                              <p className="text-sm text-gray-600">
-                                {employee.department} - {employee.position}
+                        <div key={employee.id} className="border p-4 rounded-md flex justify-between items-center">
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-full bg-yellow-500 flex items-center justify-center text-white font-bold">
+                              {employee.name.charAt(0)}
+                            </div>
+                            <div>
+                              <p className="font-semibold">{employee.name}</p>
+                              <p className="text-sm text-gray-500">
+                                {employee.id} | {employee.email}
                               </p>
-                              <p className="text-xs text-gray-500">
+                              <div className="flex items-center gap-2 mt-1">
+                                <Badge variant="secondary">Chờ duyệt</Badge>
+                                {employee.department && <Badge variant="outline">{employee.department}</Badge>}
+                              </div>
+                              <p className="text-xs text-gray-500 mt-1">
                                 Đăng ký: {new Date(employee.registeredAt).toLocaleString("vi-VN")}
                               </p>
                             </div>
-                            <Badge variant="outline">
-                              <Clock className="w-3 h-3 mr-1" />
-                              Chờ duyệt
-                            </Badge>
                           </div>
-
                           <div className="flex gap-2">
                             <Button
+                              variant="outline"
                               size="sm"
                               onClick={() => handleApproveEmployee(employee.id)}
-                              className="bg-green-600 hover:bg-green-700"
                             >
-                              <CheckCircle className="w-4 h-4 mr-1" />
+                              <CheckCircle className="w-4 h-4 mr-2" />
                               Duyệt
                             </Button>
-                            <Button size="sm" variant="destructive" onClick={() => handleRejectEmployee(employee.id)}>
-                              <XCircle className="w-4 h-4 mr-1" />
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => handleRejectEmployee(employee.id)}
+                            >
+                              <XCircle className="w-4 h-4 mr-2" />
                               Từ chối
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => setSelectedEmployee(employee)}>
-                              <Eye className="w-4 h-4 mr-1" />
-                              Xem QR
                             </Button>
                           </div>
                         </div>
@@ -1181,53 +1331,180 @@ export default function AdminPage() {
           <TabsContent value="attendance">
             <Card>
               <CardHeader>
-                <CardTitle>Báo cáo chấm công</CardTitle>
-                <div className="flex gap-4 mt-4">
-                  <div className="flex-1">
-                    <Label htmlFor="search">Tìm kiếm</Label>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                      <Input
-                        id="search"
-                        placeholder="Tên hoặc mã nhân viên..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-10"
-                      />
-                    </div>
-                  </div>
+                <div className="flex items-center justify-between">
                   <div>
-                    <Label htmlFor="date">Chọn ngày</Label>
+                    <CardTitle className="text-2xl">Lịch sử chấm công</CardTitle>
+                    <CardDescription>Xem và quản lý dữ liệu chấm công của nhân viên</CardDescription>
+                  </div>
+                  <div className="flex gap-2">
                     <Input
-                      id="date"
                       type="date"
                       value={selectedDate}
                       onChange={(e) => setSelectedDate(e.target.value)}
+                      className="w-auto"
                     />
+                    <div className="flex gap-1">
+                      <Button variant="outline" onClick={exportToPDF} size="sm">
+                        <FileText className="w-4 h-4 mr-2" />
+                        PDF
+                      </Button>
+                      <Button variant="outline" onClick={exportToExcel} size="sm">
+                        <FileSpreadsheet className="w-4 h-4 mr-2" />
+                        Excel
+                      </Button>
+                      <Button variant="outline" onClick={exportToCSV} size="sm">
+                        <FileText className="w-4 h-4 mr-2" />
+                        CSV
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {getFilteredRecords().length === 0 ? (
-                    <p className="text-center text-gray-500 py-8">Không có dữ liệu</p>
-                  ) : (
-                    getFilteredRecords().map((record) => (
-                      <div key={record.id} className="flex items-center justify-between p-4 border rounded-lg">
-                        <div className="flex items-center gap-4">
-                          <Badge variant={record.type === "check-in" ? "default" : "secondary"}>
-                            {record.type === "check-in" ? "Vào" : "Ra"}
-                          </Badge>
-                          <div>
-                            <p className="font-medium">{record.employeeName}</p>
-                            <p className="text-sm text-gray-500">
-                              {record.employeeId} - {new Date(record.timestamp).toLocaleString("vi-VN")}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
+                  <div className="flex justify-between items-center">
+                    <div className="relative w-full max-w-sm">
+                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
+                      <Input
+                        type="search"
+                        placeholder="Tìm theo tên, mã nhân viên..."
+                        className="pl-8"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[40px]">
+                            <Checkbox 
+                              checked={selectAllRecords} 
+                              onCheckedChange={handleSelectAllRecords}
+                              aria-label="Chọn tất cả" 
+                            />
+                          </TableHead>
+                          <TableHead className="w-[100px]">Mã NV</TableHead>
+                          <TableHead>Tên nhân viên</TableHead>
+                          <TableHead className="w-[80px] text-center">Loại</TableHead>
+                          <TableHead>Thời gian</TableHead>
+                          <TableHead className="hidden md:table-cell">Địa điểm</TableHead>
+                          <TableHead className="w-[140px] text-right">Tác vụ</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {getFilteredRecords().length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                              Không có dữ liệu chấm công nào cho ngày đã chọn
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          getFilteredRecords()
+                            .sort(
+                              (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+                            )
+                            .map((record) => (
+                              <TableRow key={record.id}>
+                                <TableCell>
+                                  <Checkbox 
+                                    checked={!!selectedRecords[record.id]} 
+                                    onCheckedChange={(checked) => handleSelectRecord(record.id, !!checked)}
+                                    aria-label={`Chọn bản ghi của ${record.employeeName}`} 
+                                  />
+                                </TableCell>
+                                <TableCell className="font-mono text-sm">{record.employeeId}</TableCell>
+                                <TableCell>{record.employeeName}</TableCell>
+                                <TableCell className="text-center">
+                                  {record.type === "check-in" ? (
+                                    <Badge variant="default">Vào</Badge>
+                                  ) : (
+                                    <Badge variant="secondary">Ra</Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell>{new Date(record.timestamp).toLocaleString("vi-VN")}</TableCell>
+                                <TableCell className="hidden md:table-cell">
+                                  {record.location || "N/A"}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex justify-end gap-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      disabled={!record.faceImage}
+                                      title={record.faceImage ? "Xem ảnh xác thực" : "Không có ảnh"}
+                                      onClick={() => handleViewFaceImage(record)}
+                                    >
+                                      <UserRound className="h-4 w-4" />
+                                    </Button>
+                                    <Button 
+                                      variant="ghost" 
+                                      size="icon"
+                                      onClick={() => {
+                                        confirm({
+                                          title: "Xóa bản ghi chấm công",
+                                          message: `Bạn có chắc chắn muốn xóa bản ghi chấm công này của nhân viên ${record.employeeName}?`,
+                                          confirmLabel: "Xóa",
+                                          type: "delete",
+                                          onConfirm: () => {
+                                            const updatedRecords = attendanceRecords.filter(
+                                              (r) => r.id !== record.id,
+                                            )
+                                            setAttendanceRecords(updatedRecords)
+                                            localStorage.setItem(
+                                              "attendanceRecords",
+                                              JSON.stringify(updatedRecords),
+                                            )
+                                            showAlert("Đã xóa bản ghi chấm công", "success")
+                                          }
+                                        });
+                                      }}
+                                    >
+                                      <Trash className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  
+                  {/* Batch Actions */}
+                  <div className="flex justify-between items-center mt-4">
+                    <div>
+                      {Object.values(selectedRecords).filter(Boolean).length > 0 && (
+                        <p className="text-sm text-gray-500">
+                          Đã chọn {Object.values(selectedRecords).filter(Boolean).length} bản ghi
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      {showUndoAlert && (
+                        <Button 
+                          variant="outline" 
+                          onClick={handleUndoDelete}
+                          className="flex items-center"
+                        >
+                          <RotateCcw className="w-4 h-4 mr-2" />
+                          Hoàn tác xóa ({deletedRecords.length})
+                        </Button>
+                      )}
+                      
+                      <Button 
+                        variant="destructive" 
+                        onClick={handleBatchDelete}
+                        disabled={Object.values(selectedRecords).filter(Boolean).length === 0}
+                        className="flex items-center"
+                      >
+                        <Trash className="w-4 h-4 mr-2" />
+                        Xóa đã chọn
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -1386,11 +1663,11 @@ export default function AdminPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
-                  {sentEmails.length === 0 ? (
+                  {emailHistory.length === 0 ? (
                     <p className="text-center text-gray-500 py-8">Chưa có thông báo nào được gửi</p>
                   ) : (
                     <div className="space-y-4">
-                      {sentEmails
+                      {emailHistory
                         .filter(email => {
                           // Apply all filters
                           
@@ -1649,7 +1926,7 @@ export default function AdminPage() {
                           checked={selectAllEmployees}
                           onCheckedChange={(checked) => {
                             setSelectAllEmployees(!!checked)
-                            setSelectedDepartment(null)
+                            setSelectedDepartment("")
                           }}
                         />
                         <Label htmlFor="selectAll">Chọn tất cả nhân viên</Label>
@@ -1658,9 +1935,9 @@ export default function AdminPage() {
                       <div>
                         <Label htmlFor="departmentSelect">Hoặc chọn theo phòng ban</Label>
                         <Select 
-                          value={selectedDepartment || ""} 
+                          value={selectedDepartment} 
                           onValueChange={(value) => {
-                            setSelectedDepartment(value || null)
+                            setSelectedDepartment(value)
                             setSelectAllEmployees(false)
                           }}
                         >
@@ -1722,8 +1999,8 @@ export default function AdminPage() {
                     <div>
                       <Label htmlFor="emailTemplate">Mẫu thông báo</Label>
                       <Select 
-                        value={selectedEmailTemplate || "new"} 
-                        onValueChange={(value) => setSelectedEmailTemplate(value)}
+                        value={selectedEmailTemplate} 
+                        onValueChange={(value: string) => setSelectedEmailTemplate(value)}
                       >
                         <SelectTrigger id="emailTemplate" className="w-full mt-1">
                           <SelectValue placeholder="Chọn mẫu thông báo hoặc tạo mới" />
@@ -1771,22 +2048,22 @@ export default function AdminPage() {
                         onClick={handlePreviewEmail}
                       >
                         <Eye className="w-4 h-4 mr-2" />
-                        {showPreview ? "Ẩn xem trước" : "Xem trước"}
+                        {previewEmail ? "Ẩn xem trước" : "Xem trước"}
                       </Button>
                       
                       <Button 
                         type="button"
                         onClick={handleSendEmail}
-                        disabled={sendingEmails}
+                        disabled={isSending}
                       >
                         <Send className="w-4 h-4 mr-2" />
-                        {sendingEmails ? "Đang gửi..." : "Gửi thông báo"}
+                        {isSending ? "Đang gửi..." : "Gửi thông báo"}
                       </Button>
                     </div>
                   </div>
                   
                   {/* Preview email */}
-                  {showPreview && (
+                  {previewEmail && (
                     <div className="border rounded-md p-4 mt-4">
                       <h3 className="text-lg font-medium mb-2">Xem trước email</h3>
                       <div className="border-t border-b py-2 mb-2">
@@ -1838,11 +2115,11 @@ export default function AdminPage() {
         )}
 
         {/* Suspend Employee Modal */}
-        {selectedEmployeeForSuspension && (
+        {suspensionEmployee && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <Card className="w-full max-w-lg">
               <CardHeader>
-                <CardTitle>Đình chỉ tài khoản: {selectedEmployeeForSuspension.name}</CardTitle>
+                <CardTitle>Đình chỉ tài khoản: {suspensionEmployee.name}</CardTitle>
                 <CardDescription>
                   Tài khoản sẽ không thể chấm công trong thời gian bị đình chỉ.
                 </CardDescription>
@@ -1860,51 +2137,63 @@ export default function AdminPage() {
                 </div>
                 <div>
                   <Label htmlFor="suspensionDuration">Thời hạn đình chỉ</Label>
-                  <Select value={suspensionDuration} onValueChange={setSuspensionDuration}>
+                  <Select 
+                    value={suspensionDuration} 
+                    onValueChange={(value: "1day" | "3days" | "7days" | "14days" | "30days" | "permanent") => setSuspensionDuration(value)}
+                  >
                     <SelectTrigger id="suspensionDuration" className="w-full mt-1">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="12h">12 giờ</SelectItem>
-                      <SelectItem value="24h">24 giờ</SelectItem>
-                      <SelectItem value="3d">3 ngày</SelectItem>
-                      <SelectItem value="1w">1 tuần</SelectItem>
+                      <SelectItem value="1day">1 ngày</SelectItem>
+                      <SelectItem value="3days">3 ngày</SelectItem>
+                      <SelectItem value="7days">7 ngày</SelectItem>
+                      <SelectItem value="14days">14 ngày</SelectItem>
+                      <SelectItem value="30days">30 ngày</SelectItem>
                       <SelectItem value="permanent">Vĩnh viễn</SelectItem>
-                      <SelectItem value="custom">Tùy chỉnh</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                {suspensionDuration === "custom" && (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="customStart">Từ ngày</Label>
-                      <Input
-                        id="customStart"
-                        type="datetime-local"
-                        value={customSuspensionStart}
-                        onChange={(e) => setCustomSuspensionStart(e.target.value)}
-                        className="mt-1"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="customEnd">Đến ngày</Label>
-                      <Input
-                        id="customEnd"
-                        type="datetime-local"
-                        value={customSuspensionEnd}
-                        onChange={(e) => setCustomSuspensionEnd(e.target.value)}
-                        className="mt-1"
-                      />
-                    </div>
-                  </div>
-                )}
                 <div className="flex justify-end gap-2 pt-4">
-                  <Button variant="outline" onClick={() => setSelectedEmployeeForSuspension(null)}>
+                  <Button variant="outline" onClick={() => setSuspensionEmployee(null)}>
                     Hủy
                   </Button>
                   <Button onClick={handleSuspendEmployee}>Xác nhận đình chỉ</Button>
                 </div>
               </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Modal xem ảnh xác thực khuôn mặt */}
+        {showImageModal && selectedImage && selectedAttendanceInfo && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <Card className="w-full max-w-md">
+              <CardHeader>
+                <CardTitle className="flex justify-between items-center">
+                  <span>Ảnh xác thực khuôn mặt</span>
+                  <Button variant="ghost" size="icon" onClick={() => setShowImageModal(false)}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </CardTitle>
+                <CardDescription>
+                  {selectedAttendanceInfo.employeeName} - {selectedAttendanceInfo.type === "check-in" ? "Vào ca" : "Ra ca"} lúc {new Date(selectedAttendanceInfo.timestamp).toLocaleString("vi-VN")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="border rounded-lg overflow-hidden">
+                  <img 
+                    src={selectedImage} 
+                    alt="Face verification" 
+                    className="w-full h-auto"
+                  />
+                </div>
+              </CardContent>
+              <div className="p-4 border-t flex justify-end">
+                <Button variant="secondary" onClick={() => setShowImageModal(false)}>
+                  Đóng
+                </Button>
+              </div>
             </Card>
           </div>
         )}

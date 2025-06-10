@@ -322,17 +322,17 @@ export default function EmployeeRegisterPage() {
     }
 
     try {
-      existingEmployees.push(newEmployee)
-      localStorage.setItem("employeeRegistrations", JSON.stringify(existingEmployees))
+    existingEmployees.push(newEmployee)
+    localStorage.setItem("employeeRegistrations", JSON.stringify(existingEmployees))
 
-      setEmployeeId(newEmployeeId)
-      setGeneratedQR(qrCodeData)
+    setEmployeeId(newEmployeeId)
+    setGeneratedQR(qrCodeData)
 
       // Show success alert
       showAlert("Đăng ký thành công! Đang tạo mã QR...", "success");
-      
-      // Gửi email sau khi đăng ký thành công
-      await sendRegistrationEmail(newEmployee, qrCodeData, uniqueCode)
+    
+    // Gửi email sau khi đăng ký thành công
+    await sendRegistrationEmail(newEmployee, qrCodeData, uniqueCode)
       
       // Complete the submission
       setIsSubmitted(true)
@@ -640,12 +640,12 @@ export default function EmployeeRegisterPage() {
               <div className="space-y-1">
                 <Label htmlFor="name">Họ và tên *</Label>
                 <div className="relative">
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => handleInputChange("name", e.target.value)}
-                    placeholder="Nguyễn Văn A"
-                    required
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => handleInputChange("name", e.target.value)}
+                  placeholder="Nguyễn Văn A"
+                  required
                     className={cn(
                       "pr-10 input-field",
                       shakeFields.name && "shake", 
@@ -670,13 +670,13 @@ export default function EmployeeRegisterPage() {
               <div className="space-y-1">
                 <Label htmlFor="email">Email *</Label>
                 <div className="relative">
-                  <Input
-                    id="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => handleInputChange("email", e.target.value)}
-                    placeholder="example@company.com"
-                    required
+                <Input
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => handleInputChange("email", e.target.value)}
+                  placeholder="example@company.com"
+                  required
                     className={cn(
                       "pr-10 input-field",
                       shakeFields.email && "shake", 
@@ -701,11 +701,11 @@ export default function EmployeeRegisterPage() {
               <div className="space-y-1">
                 <Label htmlFor="phone">Số điện thoại</Label>
                 <div className="relative">
-                  <Input
-                    id="phone"
-                    value={formData.phone}
-                    onChange={(e) => handleInputChange("phone", e.target.value)}
-                    placeholder="0123456789"
+                <Input
+                  id="phone"
+                  value={formData.phone}
+                  onChange={(e) => handleInputChange("phone", e.target.value)}
+                  placeholder="0123456789"
                     className={cn(
                       "pr-10 input-field",
                       shakeFields.phone && "shake", 

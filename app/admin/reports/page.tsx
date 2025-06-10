@@ -4,15 +4,13 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Download, FileText, BarChart3, PieChartIcon, TrendingUp, Clock } from "lucide-react"
+import { ArrowLeft, Download, FileText, BarChart3, PieChartIcon, TrendingUp, Clock, RotateCcw, Trash } from "lucide-react"
 import {
   PieChart,
   Pie,
-  Cell,
   BarChart,
   Bar,
   XAxis,
@@ -21,10 +19,21 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  Cell,
   LineChart,
   Line,
 } from "recharts"
 import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 
 interface EmployeeRegistration {
   id: string
@@ -54,6 +63,10 @@ export default function ReportsPage() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0])
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7))
   const [selectedDepartment, setSelectedDepartment] = useState("all")
+  const [selectedRecords, setSelectedRecords] = useState<Record<string, boolean>>({})
+  const [selectAllRecords, setSelectAllRecords] = useState(false)
+  const [deletedRecords, setDeletedRecords] = useState<AttendanceRecord[]>([])
+  const [showUndoAlert, setShowUndoAlert] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -250,6 +263,81 @@ export default function ReportsPage() {
       (record) => new Date(record.timestamp).toDateString() === new Date(selectedDate).toDateString(),
     )
   }
+
+  // Handle checkbox selection for attendance records
+  const handleSelectRecord = (recordId: string, checked: boolean) => {
+    setSelectedRecords(prev => ({
+      ...prev,
+      [recordId]: checked
+    }));
+  };
+
+  // Handle select all records checkbox
+  const handleSelectAllRecords = (checked: boolean) => {
+    setSelectAllRecords(checked);
+    
+    if (checked) {
+      const allRecords = getFilteredRecords().reduce((acc, record) => {
+        acc[record.id] = true;
+        return acc;
+      }, {} as Record<string, boolean>);
+      
+      setSelectedRecords(allRecords);
+    } else {
+      setSelectedRecords({});
+    }
+  };
+
+  // Handle batch deletion of selected records
+  const handleBatchDelete = () => {
+    const selectedIds = Object.entries(selectedRecords)
+      .filter(([_, isSelected]) => isSelected)
+      .map(([id]) => id);
+    
+    if (selectedIds.length === 0) {
+      alert("Vui lòng chọn ít nhất một bản ghi để xóa");
+      return;
+    }
+    
+    if (window.confirm(`Bạn có chắc chắn muốn xóa ${selectedIds.length} bản ghi chấm công đã chọn?`)) {
+      // Save records being deleted for undo functionality
+      const recordsToDelete = attendanceRecords.filter(record => selectedIds.includes(record.id));
+      setDeletedRecords(recordsToDelete);
+      
+      // Remove the records
+      const updatedRecords = attendanceRecords.filter(record => !selectedIds.includes(record.id));
+      setAttendanceRecords(updatedRecords);
+      localStorage.setItem("attendanceRecords", JSON.stringify(updatedRecords));
+      
+      // Reset selection
+      setSelectedRecords({});
+      setSelectAllRecords(false);
+      
+      // Show undo option
+      setShowUndoAlert(true);
+      
+      // Auto-hide undo alert after 10 seconds
+      setTimeout(() => {
+        setShowUndoAlert(false);
+      }, 10000);
+    }
+  };
+
+  // Handle undo deletion
+  const handleUndoDelete = () => {
+    if (deletedRecords.length === 0) return;
+    
+    // Restore the deleted records
+    const restoredRecords = [...attendanceRecords, ...deletedRecords];
+    setAttendanceRecords(restoredRecords);
+    localStorage.setItem("attendanceRecords", JSON.stringify(restoredRecords));
+    
+    // Clear deleted records and hide undo alert
+    setDeletedRecords([]);
+    setShowUndoAlert(false);
+    
+    alert(`Đã khôi phục ${deletedRecords.length} bản ghi chấm công`);
+  };
 
   const exportToPDF = async () => {
     try {
@@ -540,6 +628,10 @@ export default function ReportsPage() {
               <TrendingUp className="w-4 h-4 mr-2" />
               Xu hướng
             </TabsTrigger>
+            <TabsTrigger value="records">
+              <FileText className="w-4 h-4 mr-2" />
+              Chi tiết chấm công
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -742,6 +834,106 @@ export default function ReportsPage() {
                     <Line type="monotone" dataKey="count" stroke="#8884d8" strokeWidth={2} name="Số lượt chấm công" />
                   </LineChart>
                 </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="records">
+            <Card>
+              <CardHeader>
+                <CardTitle>Chi tiết chấm công ({new Date(selectedDate).toLocaleDateString("vi-VN")})</CardTitle>
+                <CardDescription>Danh sách tất cả các lượt chấm công</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-6">
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[40px]">
+                            <Checkbox 
+                              checked={selectAllRecords} 
+                              onCheckedChange={handleSelectAllRecords}
+                            />
+                          </TableHead>
+                          <TableHead className="w-[100px]">Mã NV</TableHead>
+                          <TableHead>Tên nhân viên</TableHead>
+                          <TableHead className="w-[80px]">Loại</TableHead>
+                          <TableHead>Thời gian</TableHead>
+                          <TableHead className="hidden md:table-cell">Địa điểm</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {getFilteredRecords().length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                              Không có dữ liệu chấm công nào cho ngày đã chọn
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          getFilteredRecords()
+                            .sort(
+                              (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+                            )
+                            .map((record) => (
+                              <TableRow key={record.id}>
+                                <TableCell>
+                                  <Checkbox 
+                                    checked={!!selectedRecords[record.id]} 
+                                    onCheckedChange={(checked) => handleSelectRecord(record.id, !!checked)}
+                                  />
+                                </TableCell>
+                                <TableCell className="font-mono text-sm">{record.employeeId}</TableCell>
+                                <TableCell>{record.employeeName}</TableCell>
+                                <TableCell>
+                                  {record.type === "check-in" ? (
+                                    <Badge variant="default">Vào</Badge>
+                                  ) : (
+                                    <Badge variant="secondary">Ra</Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell>{new Date(record.timestamp).toLocaleString("vi-VN")}</TableCell>
+                                <TableCell className="hidden md:table-cell">{record.location || "N/A"}</TableCell>
+                              </TableRow>
+                            ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  
+                  {/* Batch Actions and Undo Button */}
+                  <div className="flex justify-between items-center">
+                    <div>
+                      {Object.values(selectedRecords).filter(Boolean).length > 0 && (
+                        <p className="text-sm text-gray-500">
+                          Đã chọn {Object.values(selectedRecords).filter(Boolean).length} bản ghi
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      {showUndoAlert && (
+                        <Button 
+                          variant="outline"
+                          onClick={handleUndoDelete}
+                          className="flex items-center"
+                        >
+                          <RotateCcw className="w-4 h-4 mr-2" />
+                          Hoàn tác xóa ({deletedRecords.length})
+                        </Button>
+                      )}
+                      
+                      <Button 
+                        variant="destructive"
+                        onClick={handleBatchDelete}
+                        disabled={Object.values(selectedRecords).filter(Boolean).length === 0}
+                        className="flex items-center"
+                      >
+                        <Trash className="w-4 h-4 mr-2" />
+                        Xóa đã chọn
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

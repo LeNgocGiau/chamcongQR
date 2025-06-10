@@ -103,5 +103,40 @@ export const emailTemplates: EmailTemplate[] = [
         <p style="margin-top: 20px;">Trân trọng,</p>
         <p><strong>Phòng nhân sự</strong></p>
       </div>`
+  },
+  {
+    id: "checkin",
+    name: "Thông báo chấm công vào",
+    subject: "Xác nhận: Bạn đã chấm công vào ca thành công",
+    content: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+        <h2 style="color: #2e7d32; text-align: center;">Xác nhận chấm công vào ca</h2>
+        <p>Kính gửi <strong>{employeeName}</strong>,</p>
+        <p>Hệ thống đã ghi nhận thông tin chấm công vào ca của bạn với các chi tiết sau:</p>
+        <div style="background-color: #e8f5e9; padding: 15px; border-radius: 5px; margin: 15px 0;">
+          <p><strong>Thời gian:</strong> {timestamp}</p>
+          <p><strong>Địa điểm:</strong> {location}</p>
+        </div>
+        <p>Cảm ơn bạn đã tuân thủ quy định chấm công của công ty.</p>
+        <p style="margin-top: 20px;">Trân trọng,</p>
+        <p><strong>Phòng nhân sự</strong></p>
+      </div>`
+  },
+  {
+    id: "checkout",
+    name: "Thông báo chấm công ra",
+    subject: "Xác nhận: Bạn đã chấm công ra ca thành công",
+    content: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+        <h2 style="color: #1976d2; text-align: center;">Xác nhận chấm công ra ca</h2>
+        <p>Kính gửi <strong>{employeeName}</strong>,</p>
+        <p>Hệ thống đã ghi nhận thông tin chấm công ra ca của bạn với các chi tiết sau:</p>
+        <div style="background-color: #e3f2fd; padding: 15px; border-radius: 5px; margin: 15px 0;">
+          <p><strong>Thời gian:</strong> {timestamp}</p>
+          <p><strong>Địa điểm:</strong> {location}</p>
+          <p><strong>Thời gian làm việc:</strong> {workingHours} giờ {workingMinutes} phút</p>
+        </div>
+        <p>Cảm ơn bạn đã hoàn thành công việc hôm nay. Chúc bạn có thời gian nghỉ ngơi tốt.</p>
+        <p style="margin-top: 20px;">Trân trọng,</p>
+        <p><strong>Phòng nhân sự</strong></p>
+      </div>`
   }
 ] 

@@ -23,8 +23,8 @@ export default function RootLayout({
       <body className={inter.className} suppressHydrationWarning>
         <CustomConfirmProvider>
           <CustomAlertProvider>
-            <main>{children}</main>
-            <Toaster />
+        <main>{children}</main>
+        <Toaster />
           </CustomAlertProvider>
         </CustomConfirmProvider>
       </body>

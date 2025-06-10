@@ -593,7 +593,7 @@ export default function AdminPage() {
   }
 
   const handleSendEmail = async () => {
-    const selectedEmployeesList = getSelectedEmployeesEmails()
+    const selectedEmployeesList = employees.filter(emp => selectedEmployees[emp.id])
     
     if (selectedEmployeesList.length === 0) {
       showAlert("Vui lòng chọn ít nhất một nhân viên để gửi thông báo!", "warning")
@@ -611,14 +611,64 @@ export default function AdminPage() {
       confirmLabel: "Gửi",
       type: "info",
       onConfirm: async () => {
+        setSendingEmails(true);
+        
         try {
-          // Thực hiện gửi email
-          // ... existing code for sending emails ...
+          // Gửi riêng lẻ cho từng nhân viên (để cá nhân hóa nội dung)
+          const successfulEmails = []
           
-          showAlert(`Đã gửi thông báo thành công đến ${selectedEmployeesList.length} nhân viên!`, "success")
+          for (const employee of selectedEmployeesList) {
+            const personalizedContent = processEmailContent(emailContent, employee)
+            
+            const response = await fetch('/api/send-email', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                to: employee.email,
+                subject: emailSubject,
+                html: personalizedContent
+              }),
+            })
+            
+            if (!response.ok) {
+              throw new Error(`Không thể gửi email đến ${employee.email}`)
+            }
+            
+            successfulEmails.push(employee.email)
+          }
           
+          // Lưu vào lịch sử email đã gửi
+          const newEmailRecord: SentEmail = {
+            id: Date.now().toString(),
+            subject: emailSubject,
+            content: emailContent,
+            recipients: successfulEmails,
+            sentAt: new Date().toISOString(),
+            sentBy: "Admin",
+            templateId: selectedEmailTemplate && selectedEmailTemplate !== "new" ? selectedEmailTemplate : undefined
+          }
+          
+          const updatedSentEmails = [...sentEmails, newEmailRecord]
+          setSentEmails(updatedSentEmails)
+          localStorage.setItem("sentEmails", JSON.stringify(updatedSentEmails))
+          
+          // Hiển thị thông báo thành công
+          showAlert(`Đã gửi thông báo thành công đến ${successfulEmails.length} nhân viên!`, "success")
+          
+          // Reset form
+          setEmailSubject("")
+          setEmailContent("")
+          setSelectedEmailTemplate(null)
+          setSelectedEmployees({})
+          setSelectAllEmployees(false)
+          setShowPreview(false)
         } catch (error) {
+          console.error('Lỗi gửi email:', error)
           showAlert(`Có lỗi xảy ra khi gửi email: ${error instanceof Error ? error.message : String(error)}`, "error")
+        } finally {
+          setSendingEmails(false)
         }
       }
     });
@@ -1418,6 +1468,22 @@ export default function AdminPage() {
                                   const modalBody = document.createElement('div');
                                   modalBody.className = 'mt-4';
                                   
+                                  // Thêm dropdown chọn nhân viên để hiển thị nội dung cá nhân hóa
+                                  const employeeSelectSection = document.createElement('div');
+                                  employeeSelectSection.className = 'mb-4';
+                                  employeeSelectSection.innerHTML = `
+                                    <label class="font-medium mb-2 block">Xem với dữ liệu của nhân viên:</label>
+                                    <select id="employeePreviewSelect" class="w-full p-2 border rounded-md">
+                                      <option value="">Hiển thị mẫu chung</option>
+                                      ${email.recipients.map(recipientEmail => {
+                                        const emp = employees.find(e => e.email === recipientEmail);
+                                        return emp ? 
+                                          `<option value="${emp.id}">${emp.name} (${emp.email})</option>` : 
+                                          `<option value="">${recipientEmail}</option>`;
+                                      }).join('')}
+                                    </select>
+                                  `;
+                                  
                                   const recipientsSection = document.createElement('div');
                                   recipientsSection.className = 'mb-4';
                                   recipientsSection.innerHTML = `
@@ -1436,12 +1502,16 @@ export default function AdminPage() {
                                   const contentSection = document.createElement('div');
                                   contentSection.className = 'border-t pt-4 mt-4';
                                   contentSection.innerHTML = `
-                                    <p class="font-semibold mb-2">Nội dung email:</p>
-                                    <div class="p-4 border rounded-lg bg-white">
-                                      ${email.content}
+                                    <div class="flex justify-between items-center mb-2">
+                                      <p class="font-semibold">Nội dung email:</p>
+                                      <span id="previewEmployeeInfo" class="text-sm text-blue-600 font-medium"></span>
+                                    </div>
+                                    <div id="emailContentPreview" class="p-4 border rounded-lg bg-white">
+                                      ${processEmailContent(email.content)}
                                     </div>
                                   `;
                                   
+                                  modalBody.appendChild(employeeSelectSection);
                                   modalBody.appendChild(recipientsSection);
                                   modalBody.appendChild(infoSection);
                                   modalBody.appendChild(contentSection);
@@ -1451,6 +1521,41 @@ export default function AdminPage() {
                                   previewModal.appendChild(modalContent);
                                   
                                   document.body.appendChild(previewModal);
+                                  
+                                  // Thêm sự kiện cho dropdown chọn nhân viên
+                                  setTimeout(() => {
+                                    const employeeSelect = document.getElementById('employeePreviewSelect') as HTMLSelectElement;
+                                    const previewEmployeeInfo = document.getElementById('previewEmployeeInfo');
+                                    const emailContentPreview = document.getElementById('emailContentPreview');
+                                    
+                                    if (employeeSelect && emailContentPreview) {
+                                      employeeSelect.addEventListener('change', () => {
+                                        const selectedEmployeeId = employeeSelect.value;
+                                        let selectedEmployee: EmployeeRegistration | undefined;
+                                        let displayText = '';
+                                        
+                                        if (selectedEmployeeId) {
+                                          selectedEmployee = employees.find(emp => emp.id === selectedEmployeeId);
+                                          if (selectedEmployee) {
+                                            displayText = `Đang xem với dữ liệu của: ${selectedEmployee.name}`;
+                                          }
+                                        } else {
+                                          displayText = 'Đang xem mẫu chung';
+                                        }
+                                        
+                                        if (previewEmployeeInfo) {
+                                          previewEmployeeInfo.textContent = displayText;
+                                        }
+                                        
+                                        if (emailContentPreview) {
+                                          emailContentPreview.innerHTML = processEmailContent(
+                                            email.content, 
+                                            selectedEmployee
+                                          );
+                                        }
+                                      });
+                                    }
+                                  }, 100);
                                 }}
                               >
                                 <Eye className="w-4 h-4 mr-1" />

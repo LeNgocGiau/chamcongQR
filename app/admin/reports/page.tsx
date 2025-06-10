@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Download, FileText, BarChart3, PieChartIcon, TrendingUp, Clock, RotateCcw, Trash } from "lucide-react"
+import { ArrowLeft, Download, FileText, BarChart3, PieChartIcon, TrendingUp, Clock, RotateCcw, Trash, Filter, Search } from "lucide-react"
 import {
   PieChart,
   Pie,
@@ -67,6 +67,21 @@ export default function ReportsPage() {
   const [selectAllRecords, setSelectAllRecords] = useState(false)
   const [deletedRecords, setDeletedRecords] = useState<AttendanceRecord[]>([])
   const [showUndoAlert, setShowUndoAlert] = useState(false)
+  
+  // Advanced search filters
+  const [searchTerm, setSearchTerm] = useState("")
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+  const [minHoursPerDay, setMinHoursPerDay] = useState<string>("")
+  const [maxHoursPerDay, setMaxHoursPerDay] = useState<string>("")
+  const [minHoursPerWeek, setMinHoursPerWeek] = useState<string>("")
+  const [maxHoursPerWeek, setMaxHoursPerWeek] = useState<string>("")
+  const [minHoursPerMonth, setMinHoursPerMonth] = useState<string>("")
+  const [maxHoursPerMonth, setMaxHoursPerMonth] = useState<string>("")
+  const [minDaysWorked, setMinDaysWorked] = useState<string>("")
+  const [dateRangeStart, setDateRangeStart] = useState<string>("")
+  const [dateRangeEnd, setDateRangeEnd] = useState<string>("")
+  const [filterMode, setFilterMode] = useState<"day" | "week" | "month">("day")
+  
   const router = useRouter()
 
   useEffect(() => {
@@ -262,6 +277,201 @@ export default function ReportsPage() {
     return attendanceRecords.filter(
       (record) => new Date(record.timestamp).toDateString() === new Date(selectedDate).toDateString(),
     )
+  }
+
+  // Get records within a date range
+  const getRecordsInDateRange = (startDate: string, endDate: string) => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    return attendanceRecords.filter((record) => {
+      const recordDate = new Date(record.timestamp);
+      return recordDate >= start && recordDate <= new Date(endDate + "T23:59:59");
+    });
+  }
+
+  // Get records for the current week of selected date
+  const getWeekRecords = () => {
+    const selectedDateObj = new Date(selectedDate);
+    const startOfWeek = new Date(selectedDateObj);
+    startOfWeek.setDate(selectedDateObj.getDate() - selectedDateObj.getDay()); // Sunday as first day
+    
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6); // Saturday as last day
+    
+    return getRecordsInDateRange(
+      startOfWeek.toISOString().split('T')[0], 
+      endOfWeek.toISOString().split('T')[0]
+    );
+  }
+
+  // Get records for the current month of selected date
+  const getMonthRecords = () => {
+    const selectedDateObj = new Date(selectedDate);
+    const startOfMonth = new Date(selectedDateObj.getFullYear(), selectedDateObj.getMonth(), 1);
+    const endOfMonth = new Date(selectedDateObj.getFullYear(), selectedDateObj.getMonth() + 1, 0);
+    
+    return getRecordsInDateRange(
+      startOfMonth.toISOString().split('T')[0],
+      endOfMonth.toISOString().split('T')[0]
+    );
+  }
+  
+  // Calculate working hours for a set of records
+  const calculateWorkingHoursForRecords = (records: AttendanceRecord[]) => {
+    // Group by employee and day
+    const employeeRecordsByDay: Record<string, Record<string, AttendanceRecord[]>> = {};
+    
+    records.forEach(record => {
+      const employeeId = record.employeeId;
+      const recordDate = new Date(record.timestamp).toISOString().split('T')[0];
+      
+      if (!employeeRecordsByDay[employeeId]) {
+        employeeRecordsByDay[employeeId] = {};
+      }
+      
+      if (!employeeRecordsByDay[employeeId][recordDate]) {
+        employeeRecordsByDay[employeeId][recordDate] = [];
+      }
+      
+      employeeRecordsByDay[employeeId][recordDate].push(record);
+    });
+    
+    // Calculate working hours
+    const employeeStats: Record<string, {
+      employeeId: string,
+      employeeName: string,
+      totalMinutesPerDay: Record<string, number>,
+      totalMinutes: number,
+      daysWorked: number
+    }> = {};
+    
+    Object.entries(employeeRecordsByDay).forEach(([employeeId, daysRecords]) => {
+      const employee = employees.find(emp => emp.id === employeeId);
+      if (!employee) return;
+      
+      const stats = {
+        employeeId,
+        employeeName: employee.name,
+        totalMinutesPerDay: {} as Record<string, number>,
+        totalMinutes: 0,
+        daysWorked: 0
+      };
+      
+      Object.entries(daysRecords).forEach(([date, dayRecords]) => {
+        const checkIns = dayRecords
+          .filter(r => r.type === "check-in")
+          .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+          
+        const checkOuts = dayRecords
+          .filter(r => r.type === "check-out")
+          .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        
+        let dayMinutes = 0;
+        
+        for (let i = 0; i < Math.min(checkIns.length, checkOuts.length); i++) {
+          const workTime = calculateWorkingTime(checkIns[i].timestamp, checkOuts[i].timestamp);
+          dayMinutes += workTime.totalMinutes;
+        }
+        
+        if (dayMinutes > 0) {
+          stats.totalMinutesPerDay[date] = dayMinutes;
+          stats.totalMinutes += dayMinutes;
+          stats.daysWorked++;
+        }
+      });
+      
+      employeeStats[employeeId] = stats;
+    });
+    
+    return employeeStats;
+  }
+  
+  // Apply advanced filters to get filtered employee stats
+  const getFilteredEmployeeStats = () => {
+    let recordsToFilter;
+    
+    if (dateRangeStart && dateRangeEnd) {
+      recordsToFilter = getRecordsInDateRange(dateRangeStart, dateRangeEnd);
+    } else {
+      switch (filterMode) {
+        case 'day':
+          recordsToFilter = getFilteredRecords();
+          break;
+        case 'week':
+          recordsToFilter = getWeekRecords();
+          break;
+        case 'month':
+          recordsToFilter = getMonthRecords();
+          break;
+      }
+    }
+    
+    // Filter by department if selected
+    if (selectedDepartment !== 'all') {
+      recordsToFilter = recordsToFilter.filter(record => {
+        const employee = employees.find(emp => emp.id === record.employeeId);
+        return employee && employee.department === selectedDepartment;
+      });
+    }
+    
+    // Filter by search term
+    if (searchTerm) {
+      recordsToFilter = recordsToFilter.filter(record => {
+        return record.employeeId.toLowerCase().includes(searchTerm.toLowerCase()) || 
+               record.employeeName.toLowerCase().includes(searchTerm.toLowerCase());
+      });
+    }
+    
+    // Calculate stats for these records
+    const employeeStats = calculateWorkingHoursForRecords(recordsToFilter);
+    
+    // Apply advanced filters
+    return Object.values(employeeStats).filter(stats => {
+      // Filter by hours per day
+      if (minHoursPerDay) {
+        const minMinutes = parseFloat(minHoursPerDay) * 60;
+        if (Object.values(stats.totalMinutesPerDay).some(minutes => minutes < minMinutes)) {
+          return false;
+        }
+      }
+      
+      if (maxHoursPerDay) {
+        const maxMinutes = parseFloat(maxHoursPerDay) * 60;
+        if (Object.values(stats.totalMinutesPerDay).some(minutes => minutes > maxMinutes)) {
+          return false;
+        }
+      }
+      
+      // Filter by total hours (week/month)
+      if (minHoursPerWeek && filterMode === 'week') {
+        const minMinutes = parseFloat(minHoursPerWeek) * 60;
+        if (stats.totalMinutes < minMinutes) return false;
+      }
+      
+      if (maxHoursPerWeek && filterMode === 'week') {
+        const maxMinutes = parseFloat(maxHoursPerWeek) * 60;
+        if (stats.totalMinutes > maxMinutes) return false;
+      }
+      
+      if (minHoursPerMonth && filterMode === 'month') {
+        const minMinutes = parseFloat(minHoursPerMonth) * 60;
+        if (stats.totalMinutes < minMinutes) return false;
+      }
+      
+      if (maxHoursPerMonth && filterMode === 'month') {
+        const maxMinutes = parseFloat(maxHoursPerMonth) * 60;
+        if (stats.totalMinutes > maxMinutes) return false;
+      }
+      
+      // Filter by days worked
+      if (minDaysWorked) {
+        const minDays = parseInt(minDaysWorked);
+        if (stats.daysWorked < minDays) return false;
+      }
+      
+      return true;
+    });
   }
 
   // Handle checkbox selection for attendance records
@@ -531,6 +741,203 @@ export default function ReportsPage() {
       alert("Lỗi khi xuất file. Vui lòng thử lại.")
     }
   }
+
+  // Export filtered data to PDF
+  const exportFilteredToPDF = async () => {
+    try {
+      const filteredStats = getFilteredEmployeeStats();
+      const { jsPDF } = await import("jspdf")
+      const doc = new jsPDF()
+
+      // Header
+      doc.setFontSize(18)
+      doc.text("BÁO CÁO CHẤM CÔNG CHI TIẾT (ĐÃ LỌC)", 20, 20)
+
+      doc.setFontSize(12)
+      let yPos = 35;
+      
+      // Filter information
+      doc.text("Thông tin bộ lọc:", 20, yPos); yPos += 10;
+      
+      if (filterMode === "day") {
+        doc.text(`Ngày: ${new Date(selectedDate).toLocaleDateString("vi-VN")}`, 25, yPos); yPos += 8;
+      } else if (filterMode === "week") {
+        const selectedDateObj = new Date(selectedDate);
+        const startOfWeek = new Date(selectedDateObj);
+        startOfWeek.setDate(selectedDateObj.getDate() - selectedDateObj.getDay());
+        
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        
+        doc.text(`Tuần: ${startOfWeek.toLocaleDateString("vi-VN")} đến ${endOfWeek.toLocaleDateString("vi-VN")}`, 25, yPos); yPos += 8;
+      } else if (filterMode === "month") {
+        doc.text(`Tháng: ${new Date(selectedDate).toLocaleDateString("vi-VN", { month: 'long', year: 'numeric' })}`, 25, yPos); yPos += 8;
+      }
+      
+      if (dateRangeStart && dateRangeEnd) {
+        doc.text(`Khoảng thời gian: ${new Date(dateRangeStart).toLocaleDateString("vi-VN")} đến ${new Date(dateRangeEnd).toLocaleDateString("vi-VN")}`, 25, yPos); yPos += 8;
+      }
+      
+      if (minHoursPerDay) doc.text(`Số giờ làm tối thiểu mỗi ngày: ${minHoursPerDay}h`, 25, yPos); yPos += 8;
+      if (maxHoursPerDay) doc.text(`Số giờ làm tối đa mỗi ngày: ${maxHoursPerDay}h`, 25, yPos); yPos += 8;
+      if (minHoursPerWeek && filterMode === "week") doc.text(`Số giờ làm tối thiểu trong tuần: ${minHoursPerWeek}h`, 25, yPos); yPos += 8;
+      if (maxHoursPerWeek && filterMode === "week") doc.text(`Số giờ làm tối đa trong tuần: ${maxHoursPerWeek}h`, 25, yPos); yPos += 8;
+      if (minHoursPerMonth && filterMode === "month") doc.text(`Số giờ làm tối thiểu trong tháng: ${minHoursPerMonth}h`, 25, yPos); yPos += 8;
+      if (maxHoursPerMonth && filterMode === "month") doc.text(`Số giờ làm tối đa trong tháng: ${maxHoursPerMonth}h`, 25, yPos); yPos += 8;
+      if (minDaysWorked) doc.text(`Số ngày làm việc tối thiểu: ${minDaysWorked} ngày`, 25, yPos); yPos += 8;
+      
+      doc.text(`Thời gian xuất: ${new Date().toLocaleString("vi-VN")}`, 25, yPos);
+      yPos += 15;
+
+      // Table header
+      doc.setFontSize(14);
+      doc.text(`KẾT QUẢ LỌC (${filteredStats.length} nhân viên)`, 20, yPos);
+      yPos += 15;
+
+      doc.setFontSize(10);
+      // Table headers
+      doc.text("STT", 20, yPos);
+      doc.text("Mã NV", 35, yPos);
+      doc.text("Tên nhân viên", 60, yPos);
+      doc.text("Tổng giờ làm", 120, yPos);
+      doc.text("Số ngày làm", 160, yPos);
+      yPos += 8;
+
+      // Table content
+      filteredStats.forEach((stat, index) => {
+        if (yPos > 280) {
+          doc.addPage();
+          yPos = 20;
+        }
+
+        doc.text((index + 1).toString(), 20, yPos);
+        doc.text(stat.employeeId, 35, yPos);
+        doc.text(stat.employeeName.substring(0, 25), 60, yPos);
+        doc.text(`${Math.floor(stat.totalMinutes / 60)}h ${stat.totalMinutes % 60}m`, 120, yPos);
+        doc.text(stat.daysWorked.toString(), 160, yPos);
+        yPos += 8;
+      });
+
+      const fileName = dateRangeStart && dateRangeEnd 
+        ? `bao_cao_cham_cong_${dateRangeStart}_den_${dateRangeEnd}.pdf`
+        : `bao_cao_cham_cong_${filterMode}_${selectedDate}.pdf`;
+        
+      doc.save(fileName);
+      alert("Xuất PDF thành công!");
+    } catch (error) {
+      console.error("Export error:", error);
+      alert("Lỗi khi xuất PDF. Vui lòng thử lại.");
+    }
+  };
+
+  // Export filtered data to Excel
+  const exportFilteredToExcel = async () => {
+    try {
+      const filteredStats = getFilteredEmployeeStats();
+      
+      // Create CSV sections
+      const csvSections = [];
+      
+      // Header
+      csvSections.push("BÁO CÁO CHẤM CÔNG CHI TIẾT (ĐÃ LỌC)");
+      csvSections.push("");
+      
+      // Filter information
+      csvSections.push("THÔNG TIN BỘ LỌC:");
+      
+      if (filterMode === "day") {
+        csvSections.push(`Ngày:,${new Date(selectedDate).toLocaleDateString("vi-VN")}`);
+      } else if (filterMode === "week") {
+        const selectedDateObj = new Date(selectedDate);
+        const startOfWeek = new Date(selectedDateObj);
+        startOfWeek.setDate(selectedDateObj.getDate() - selectedDateObj.getDay());
+        
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        
+        csvSections.push(`Tuần:,${startOfWeek.toLocaleDateString("vi-VN")} đến ${endOfWeek.toLocaleDateString("vi-VN")}`);
+      } else if (filterMode === "month") {
+        csvSections.push(`Tháng:,${new Date(selectedDate).toLocaleDateString("vi-VN", { month: 'long', year: 'numeric' })}`);
+      }
+      
+      if (dateRangeStart && dateRangeEnd) {
+        csvSections.push(`Khoảng thời gian:,${new Date(dateRangeStart).toLocaleDateString("vi-VN")} đến ${new Date(dateRangeEnd).toLocaleDateString("vi-VN")}`);
+      }
+      
+      if (minHoursPerDay) csvSections.push(`Số giờ làm tối thiểu mỗi ngày:,${minHoursPerDay}h`);
+      if (maxHoursPerDay) csvSections.push(`Số giờ làm tối đa mỗi ngày:,${maxHoursPerDay}h`);
+      if (minHoursPerWeek && filterMode === "week") csvSections.push(`Số giờ làm tối thiểu trong tuần:,${minHoursPerWeek}h`);
+      if (maxHoursPerWeek && filterMode === "week") csvSections.push(`Số giờ làm tối đa trong tuần:,${maxHoursPerWeek}h`);
+      if (minHoursPerMonth && filterMode === "month") csvSections.push(`Số giờ làm tối thiểu trong tháng:,${minHoursPerMonth}h`);
+      if (maxHoursPerMonth && filterMode === "month") csvSections.push(`Số giờ làm tối đa trong tháng:,${maxHoursPerMonth}h`);
+      if (minDaysWorked) csvSections.push(`Số ngày làm việc tối thiểu:,${minDaysWorked} ngày`);
+      
+      csvSections.push(`Thời gian xuất:,${new Date().toLocaleString("vi-VN")}`);
+      csvSections.push("");
+      
+      // Employee data
+      csvSections.push("KẾT QUẢ LỌC:");
+      csvSections.push("STT,Mã NV,Tên nhân viên,Phòng ban,Tổng giờ làm,Tổng phút làm,Số ngày làm việc");
+      
+      filteredStats.forEach((stat, index) => {
+        const row = [
+          index + 1,
+          stat.employeeId,
+          stat.employeeName,
+          employees.find(emp => emp.id === stat.employeeId)?.department || "",
+          `${Math.floor(stat.totalMinutes / 60)}h ${stat.totalMinutes % 60}m`,
+          stat.totalMinutes,
+          stat.daysWorked
+        ];
+        
+        csvSections.push(row.join(","));
+      });
+      
+      // Chi tiết ngày làm việc cho mỗi nhân viên đã lọc
+      csvSections.push("");
+      csvSections.push("CHI TIẾT NGÀY LÀM VIỆC:");
+      csvSections.push("Mã NV,Tên nhân viên,Ngày làm việc,Số giờ làm,Số phút làm");
+      
+      filteredStats.forEach(stat => {
+        Object.entries(stat.totalMinutesPerDay).forEach(([date, minutes]) => {
+          const hours = Math.floor(minutes / 60);
+          const mins = minutes % 60;
+          
+          const row = [
+            stat.employeeId,
+            stat.employeeName,
+            new Date(date).toLocaleDateString("vi-VN"),
+            hours,
+            mins
+          ];
+          
+          csvSections.push(row.join(","));
+        });
+      });
+      
+      // Tạo file CSV
+      const csvContent = csvSections.join("\n");
+      const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      
+      const fileName = dateRangeStart && dateRangeEnd 
+        ? `bao_cao_cham_cong_${dateRangeStart}_den_${dateRangeEnd}.csv`
+        : `bao_cao_cham_cong_${filterMode}_${selectedDate}.csv`;
+      
+      link.setAttribute("href", url);
+      link.setAttribute("download", fileName);
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      alert("Xuất Excel thành công!");
+    } catch (error) {
+      console.error("Export error:", error);
+      alert("Lỗi khi xuất file. Vui lòng thử lại.");
+    }
+  };
 
   const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8", "#82CA9D", "#FFC658", "#FF7C7C"]
 
@@ -841,65 +1248,337 @@ export default function ReportsPage() {
           <TabsContent value="records">
             <Card>
               <CardHeader>
-                <CardTitle>Chi tiết chấm công ({new Date(selectedDate).toLocaleDateString("vi-VN")})</CardTitle>
+                <CardTitle className="text-2xl">Chi tiết chấm công ({new Date(selectedDate).toLocaleDateString("vi-VN")})</CardTitle>
                 <CardDescription>Danh sách tất cả các lượt chấm công</CardDescription>
+                
+                {/* Search and advanced filter UI */}
+                <div className="mt-4 space-y-4">
+                  <div className="flex flex-col md:flex-row gap-4">
+                    <div className="relative flex-grow">
+                      <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                      <Input
+                        placeholder="Tìm kiếm theo tên, mã nhân viên..."
+                        className="pl-10"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                      />
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                      className="md:w-auto w-full"
+                    >
+                      <Filter className="w-4 h-4 mr-2" />
+                      {showAdvancedFilters ? "Ẩn bộ lọc nâng cao" : "Bộ lọc nâng cao"}
+                    </Button>
+                  </div>
+                  
+                  {showAdvancedFilters && (
+                    <div className="border rounded-lg p-4 bg-gray-50 space-y-4">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-medium">Phạm vi thời gian:</h3>
+                        <div className="flex gap-2">
+                          <Button 
+                            variant={filterMode === "day" ? "default" : "outline"} 
+                            size="sm"
+                            onClick={() => setFilterMode("day")}
+                          >
+                            Ngày
+                          </Button>
+                          <Button 
+                            variant={filterMode === "week" ? "default" : "outline"} 
+                            size="sm"
+                            onClick={() => setFilterMode("week")}
+                          >
+                            Tuần
+                          </Button>
+                          <Button 
+                            variant={filterMode === "month" ? "default" : "outline"} 
+                            size="sm"
+                            onClick={() => setFilterMode("month")}
+                          >
+                            Tháng
+                          </Button>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Filter giờ làm mỗi ngày */}
+                        <div className="space-y-2">
+                          <Label>Số giờ làm mỗi ngày:</Label>
+                          <div className="flex gap-2 items-center">
+                            <Input 
+                              type="number" 
+                              placeholder="Tối thiểu"
+                              value={minHoursPerDay}
+                              onChange={(e) => setMinHoursPerDay(e.target.value)}
+                              min="0"
+                              step="0.5"
+                              className="w-24"
+                            />
+                            <span>đến</span>
+                            <Input 
+                              type="number" 
+                              placeholder="Tối đa"
+                              value={maxHoursPerDay}
+                              onChange={(e) => setMaxHoursPerDay(e.target.value)}
+                              min="0"
+                              step="0.5"
+                              className="w-24"
+                            />
+                            <span>giờ</span>
+                          </div>
+                        </div>
+                        
+                        {/* Filter số ngày làm */}
+                        <div className="space-y-2">
+                          <Label>Số ngày làm việc tối thiểu:</Label>
+                          <div className="flex gap-2 items-center">
+                            <Input 
+                              type="number" 
+                              placeholder="Số ngày"
+                              value={minDaysWorked}
+                              onChange={(e) => setMinDaysWorked(e.target.value)}
+                              min="0"
+                              step="1"
+                              className="w-24"
+                            />
+                            <span>ngày</span>
+                          </div>
+                        </div>
+                        
+                        {/* Filter giờ làm theo tuần/tháng - chỉ hiển thị khi filter mode phù hợp */}
+                        {filterMode === "week" && (
+                          <div className="space-y-2">
+                            <Label>Tổng số giờ làm trong tuần:</Label>
+                            <div className="flex gap-2 items-center">
+                              <Input 
+                                type="number" 
+                                placeholder="Tối thiểu"
+                                value={minHoursPerWeek}
+                                onChange={(e) => setMinHoursPerWeek(e.target.value)}
+                                min="0"
+                                step="0.5"
+                                className="w-24"
+                              />
+                              <span>đến</span>
+                              <Input 
+                                type="number" 
+                                placeholder="Tối đa"
+                                value={maxHoursPerWeek}
+                                onChange={(e) => setMaxHoursPerWeek(e.target.value)}
+                                min="0"
+                                step="0.5"
+                                className="w-24"
+                              />
+                              <span>giờ</span>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {filterMode === "month" && (
+                          <div className="space-y-2">
+                            <Label>Tổng số giờ làm trong tháng:</Label>
+                            <div className="flex gap-2 items-center">
+                              <Input 
+                                type="number" 
+                                placeholder="Tối thiểu"
+                                value={minHoursPerMonth}
+                                onChange={(e) => setMinHoursPerMonth(e.target.value)}
+                                min="0"
+                                step="0.5"
+                                className="w-24"
+                              />
+                              <span>đến</span>
+                              <Input 
+                                type="number" 
+                                placeholder="Tối đa"
+                                value={maxHoursPerMonth}
+                                onChange={(e) => setMaxHoursPerMonth(e.target.value)}
+                                min="0"
+                                step="0.5"
+                                className="w-24"
+                              />
+                              <span>giờ</span>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Filter theo khoảng thời gian tùy chọn */}
+                        <div className="space-y-2 md:col-span-2">
+                          <Label>Khoảng thời gian tùy chọn:</Label>
+                          <div className="flex gap-2 items-center">
+                            <Input 
+                              type="date" 
+                              value={dateRangeStart}
+                              onChange={(e) => setDateRangeStart(e.target.value)}
+                              className="w-auto"
+                            />
+                            <span>đến</span>
+                            <Input 
+                              type="date"
+                              value={dateRangeEnd}
+                              onChange={(e) => setDateRangeEnd(e.target.value)}
+                              className="w-auto"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button 
+                          variant="outline"
+                          onClick={() => {
+                            setSearchTerm("");
+                            setMinHoursPerDay("");
+                            setMaxHoursPerDay("");
+                            setMinHoursPerWeek("");
+                            setMaxHoursPerWeek("");
+                            setMinHoursPerMonth("");
+                            setMaxHoursPerMonth("");
+                            setMinDaysWorked("");
+                            setDateRangeStart("");
+                            setDateRangeEnd("");
+                            setFilterMode("day");
+                          }}
+                        >
+                          Xóa bộ lọc
+                        </Button>
+                        
+                        <div className="flex gap-2">
+                          <Button onClick={() => exportFilteredToPDF()} variant="outline">
+                            <FileText className="w-4 h-4 mr-2" />
+                            Xuất PDF
+                          </Button>
+                          <Button onClick={() => exportFilteredToExcel()}>
+                            <Download className="w-4 h-4 mr-2" />
+                            Xuất Excel
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
-                  <div className="border rounded-lg overflow-hidden">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-[40px]">
-                            <Checkbox 
-                              checked={selectAllRecords} 
-                              onCheckedChange={handleSelectAllRecords}
-                            />
-                          </TableHead>
-                          <TableHead className="w-[100px]">Mã NV</TableHead>
-                          <TableHead>Tên nhân viên</TableHead>
-                          <TableHead className="w-[80px]">Loại</TableHead>
-                          <TableHead>Thời gian</TableHead>
-                          <TableHead className="hidden md:table-cell">Địa điểm</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {getFilteredRecords().length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={6} className="text-center py-8 text-gray-500">
-                              Không có dữ liệu chấm công nào cho ngày đã chọn
-                            </TableCell>
-                          </TableRow>
+                  {/* Advanced search results display */}
+                  {(showAdvancedFilters && (
+                    minHoursPerDay || maxHoursPerDay || minHoursPerWeek || maxHoursPerWeek || 
+                    minHoursPerMonth || maxHoursPerMonth || minDaysWorked || 
+                    dateRangeStart || dateRangeEnd || filterMode !== "day" || searchTerm
+                  )) && (
+                    <div className="border rounded-lg p-4 bg-gray-50">
+                      <h3 className="font-medium text-lg mb-3">Kết quả lọc nâng cao</h3>
+                      <div className="space-y-4">
+                        {getFilteredEmployeeStats().length > 0 ? (
+                          <>
+                            <p className="text-sm text-gray-500">
+                              Tìm thấy {getFilteredEmployeeStats().length} nhân viên phù hợp với điều kiện lọc.
+                            </p>
+                            <div className="border rounded-lg overflow-hidden">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Mã NV</TableHead>
+                                    <TableHead>Tên nhân viên</TableHead>
+                                    <TableHead>Phòng ban</TableHead>
+                                    <TableHead>Tổng giờ làm</TableHead>
+                                    <TableHead>Số ngày làm</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {getFilteredEmployeeStats().map((stat) => (
+                                    <TableRow key={stat.employeeId}>
+                                      <TableCell className="font-mono">{stat.employeeId}</TableCell>
+                                      <TableCell>{stat.employeeName}</TableCell>
+                                      <TableCell>
+                                        {employees.find(emp => emp.id === stat.employeeId)?.department || "N/A"}
+                                      </TableCell>
+                                      <TableCell>
+                                        {Math.floor(stat.totalMinutes / 60)}h {stat.totalMinutes % 60}m
+                                      </TableCell>
+                                      <TableCell>{stat.daysWorked} ngày</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </>
                         ) : (
-                          getFilteredRecords()
-                            .sort(
-                              (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-                            )
-                            .map((record) => (
-                              <TableRow key={record.id}>
-                                <TableCell>
-                                  <Checkbox 
-                                    checked={!!selectedRecords[record.id]} 
-                                    onCheckedChange={(checked) => handleSelectRecord(record.id, !!checked)}
-                                  />
-                                </TableCell>
-                                <TableCell className="font-mono text-sm">{record.employeeId}</TableCell>
-                                <TableCell>{record.employeeName}</TableCell>
-                                <TableCell>
-                                  {record.type === "check-in" ? (
-                                    <Badge variant="default">Vào</Badge>
-                                  ) : (
-                                    <Badge variant="secondary">Ra</Badge>
-                                  )}
-                                </TableCell>
-                                <TableCell>{new Date(record.timestamp).toLocaleString("vi-VN")}</TableCell>
-                                <TableCell className="hidden md:table-cell">{record.location || "N/A"}</TableCell>
-                              </TableRow>
-                            ))
+                          <div className="text-center py-10 text-gray-500">
+                            Không tìm thấy nhân viên nào phù hợp với điều kiện lọc
+                          </div>
                         )}
-                      </TableBody>
-                    </Table>
-                  </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Chi tiết chấm công theo ngày (hiển thị khi không sử dụng bộ lọc nâng cao hoặc chỉ lọc cho ngày hiện tại) */}
+                  {(!showAdvancedFilters || (showAdvancedFilters && filterMode === "day" && !dateRangeStart)) && (
+                    <div className="border rounded-lg overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[40px]">
+                              <Checkbox 
+                                checked={selectAllRecords} 
+                                onCheckedChange={handleSelectAllRecords}
+                              />
+                            </TableHead>
+                            <TableHead className="w-[100px]">Mã NV</TableHead>
+                            <TableHead>Tên nhân viên</TableHead>
+                            <TableHead className="w-[80px]">Loại</TableHead>
+                            <TableHead>Thời gian</TableHead>
+                            <TableHead className="hidden md:table-cell">Địa điểm</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {getFilteredRecords().length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                                Không có dữ liệu chấm công nào cho ngày đã chọn
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            getFilteredRecords()
+                              .filter(record => {
+                                // Apply search filter if present
+                                if (!searchTerm) return true;
+                                return (
+                                  record.employeeId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                  record.employeeName.toLowerCase().includes(searchTerm.toLowerCase())
+                                );
+                              })
+                              .sort(
+                                (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+                              )
+                              .map((record) => (
+                                <TableRow key={record.id}>
+                                  <TableCell>
+                                    <Checkbox 
+                                      checked={!!selectedRecords[record.id]} 
+                                      onCheckedChange={(checked) => handleSelectRecord(record.id, !!checked)}
+                                    />
+                                  </TableCell>
+                                  <TableCell className="font-mono text-sm">{record.employeeId}</TableCell>
+                                  <TableCell>{record.employeeName}</TableCell>
+                                  <TableCell>
+                                    {record.type === "check-in" ? (
+                                      <Badge variant="default">Vào</Badge>
+                                    ) : (
+                                      <Badge variant="secondary">Ra</Badge>
+                                    )}
+                                  </TableCell>
+                                  <TableCell>{new Date(record.timestamp).toLocaleString("vi-VN")}</TableCell>
+                                  <TableCell className="hidden md:table-cell">{record.location || "N/A"}</TableCell>
+                                </TableRow>
+                              ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
                   
                   {/* Batch Actions and Undo Button */}
                   <div className="flex justify-between items-center">

@@ -110,7 +110,7 @@ export default function AdminPage() {
   const [selectedTemplate, setSelectedTemplate] = useState<string>("")
   const [emailSubject, setEmailSubject] = useState("")
   const [emailContent, setEmailContent] = useState("")
-  const [selectedDepartment, setSelectedDepartment] = useState<string>("")
+  const [selectedDepartments, setSelectedDepartments] = useState<string[]>([])
   const [selectedEmployees, setSelectedEmployees] = useState<Record<string, boolean>>({})
   const [selectAllEmployees, setSelectAllEmployees] = useState(false)
   const [previewEmail, setPreviewEmail] = useState<{
@@ -183,17 +183,20 @@ export default function AdminPage() {
 
   useEffect(() => {
     // Update selected employees when department changes
-    if (selectedDepartment) {
+    if (selectedDepartments.length > 0) {
       const deptEmployees = employees
-        .filter(emp => emp.status === 'approved' && emp.department === selectedDepartment)
+        .filter(emp => emp.status === 'approved' && selectedDepartments.includes(emp.department))
         .reduce((acc, emp) => {
           acc[emp.id] = true
           return acc
         }, {} as Record<string, boolean>)
       
       setSelectedEmployees(deptEmployees)
+    } else {
+      // Clear all employee selections when no departments are selected
+      setSelectedEmployees({})
     }
-  }, [selectedDepartment, employees])
+  }, [selectedDepartments, employees])
 
   useEffect(() => {
     // Handle select all toggle
@@ -2055,7 +2058,7 @@ export default function AdminPage() {
                           checked={selectAllEmployees}
                           onCheckedChange={(checked) => {
                             setSelectAllEmployees(!!checked)
-                            setSelectedDepartment("")
+                            setSelectedDepartments([])
                           }}
                         />
                         <Label htmlFor="selectAll">Chọn tất cả nhân viên</Label>
@@ -2063,24 +2066,28 @@ export default function AdminPage() {
                       
                       <div>
                         <Label htmlFor="departmentSelect">Hoặc chọn theo phòng ban</Label>
-                        <Select 
-                          value={selectedDepartment} 
-                          onValueChange={(value) => {
-                            setSelectedDepartment(value)
-                            setSelectAllEmployees(false)
-                          }}
-                        >
-                          <SelectTrigger id="departmentSelect" className="w-full mt-1">
-                            <SelectValue placeholder="Chọn phòng ban" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {getUniqueEmployeeList().map((dept) => (
-                              <SelectItem key={dept} value={dept}>
-                                {dept}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <div className="border rounded-md p-2 mt-1 max-h-[150px] overflow-auto">
+                          {getUniqueEmployeeList().map((dept) => (
+                            <div key={dept} className="flex items-center gap-2 py-1">
+                              <Checkbox 
+                                id={`dept-${dept}`} 
+                                checked={selectedDepartments.includes(dept)}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    setSelectedDepartments(prev => [...prev, dept]);
+                                  } else {
+                                    setSelectedDepartments(prev => prev.filter(d => d !== dept));
+                                  }
+                                  setSelectAllEmployees(false);
+                                }}
+                              />
+                              <Label htmlFor={`dept-${dept}`}>{dept}</Label>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-2 text-sm text-gray-500">
+                          Đã chọn {selectedDepartments.length}/{getUniqueEmployeeList().length} phòng ban
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2093,10 +2100,24 @@ export default function AdminPage() {
                     <div className="border rounded-md p-1 max-h-[250px] overflow-auto">
                       {employees
                         .filter(emp => emp.status === "approved")
+                        .sort((a, b): number => {
+                          // Check if employees belong to selected departments
+                          const aInSelectedDept = selectedDepartments.includes(a.department);
+                          const bInSelectedDept = selectedDepartments.includes(b.department);
+                          
+                          // First sort by whether they're in selected departments
+                          if (aInSelectedDept && !bInSelectedDept) return -1;
+                          if (!aInSelectedDept && bInSelectedDept) return 1;
+                          
+                          // Then sort alphabetically by name within each group
+                          return a.name.localeCompare(b.name);
+                        })
                         .map(employee => (
                           <div 
                             key={employee.id} 
-                            className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-sm"
+                            className={`flex items-center gap-3 p-2 hover:bg-slate-50 rounded-sm ${
+                              selectedDepartments.includes(employee.department) ? "bg-slate-50" : ""
+                            }`}
                           >
                             <Checkbox 
                               id={`emp-${employee.id}`} 

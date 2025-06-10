@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { QrScanner } from "@/components/qr-scanner"
 import { LogOut, Clock, CheckCircle, XCircle, History } from "lucide-react"
+import { useCustomAlert } from "@/components/custom-alert"
 
 interface AttendanceRecord {
   id: string
@@ -22,6 +23,7 @@ export default function EmployeePage() {
   const [todayRecords, setTodayRecords] = useState<AttendanceRecord[]>([])
   const [showScanner, setShowScanner] = useState(false)
   const router = useRouter()
+  const { showAlert } = useCustomAlert()
 
   useEffect(() => {
     const employee = localStorage.getItem("currentEmployee")
@@ -60,7 +62,7 @@ export default function EmployeePage() {
       const timeDiff = Math.abs(now.getTime() - qrTime.getTime()) / (1000 * 60) // phút
 
       if (timeDiff > 5) {
-        alert("Mã QR đã hết hạn. Vui lòng quét mã mới.")
+        showAlert("Mã QR đã hết hạn. Vui lòng quét mã mới.", "warning")
         return
       }
 
@@ -83,9 +85,12 @@ export default function EmployeePage() {
       setCurrentStatus(newRecord.type === "check-in" ? "in" : "out")
       setShowScanner(false)
 
-      alert(`${newRecord.type === "check-in" ? "Chấm công vào" : "Chấm công ra"} thành công!`)
+      showAlert(
+        `${newRecord.type === "check-in" ? "Chấm công vào" : "Chấm công ra"} thành công!`, 
+        "success"
+      )
     } catch (error) {
-      alert("Mã QR không hợp lệ")
+      showAlert("Mã QR không hợp lệ", "error")
     }
   }
 

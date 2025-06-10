@@ -1,15 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { QrScanner } from "@/components/qr-scanner"
-import { ArrowLeft, Clock, CheckCircle, XCircle, AlertCircle, AlertTriangle, History } from "lucide-react"
+import { ArrowLeft, Clock, CheckCircle, XCircle, AlertCircle, AlertTriangle, History, Calendar } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { emailTemplates } from "@/lib/emailTemplates"
+import { useCustomAlert } from "@/components/custom-alert"
 
 interface AttendanceRecord {
   id: string
@@ -55,6 +56,8 @@ export default function AttendancePage() {
 
   const [showWorkingHistory, setShowWorkingHistory] = useState(false)
   const [workingHistory, setWorkingHistory] = useState<any[]>([])
+
+  const { showAlert } = useCustomAlert()
 
   // Thêm function tính toán thời gian làm việc
   const calculateWorkingTime = (checkInTime: string, checkOutTime: string) => {
@@ -274,7 +277,7 @@ export default function AttendancePage() {
   // Thêm function xử lý nhập thủ công
   const handleManualSubmit = () => {
     if (!manualCode.trim()) {
-      alert("Vui lòng nhập mã")
+      showAlert("Vui lòng nhập mã", "warning")
       return
     }
 

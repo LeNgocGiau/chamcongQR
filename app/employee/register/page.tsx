@@ -2,16 +2,19 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Download, QrCode } from "lucide-react"
+import { ArrowLeft, Download, QrCode, AlertCircle, CheckCircle } from "lucide-react"
 import { createRegistrationEmailTemplate, sendEmail } from "@/lib/email-service"
 import { useToast } from "@/components/ui/use-toast"
+import { cn } from "@/lib/utils"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { useCustomAlert } from "@/components/custom-alert"
 
 interface EmployeeRegistration {
   id: string
@@ -26,6 +29,78 @@ interface EmployeeRegistration {
   uniqueCode: string
 }
 
+// CSS for animations 
+const customStyles = `
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+  20%, 40%, 60%, 80% { transform: translateX(5px); }
+}
+.shake {
+  animation: shake 0.82s cubic-bezier(.36,.07,.19,.97) both;
+}
+
+.input-valid {
+  border-color: #22c55e !important;
+  transition: all 0.2s ease;
+}
+
+.input-field {
+  transition: all 0.3s ease;
+}
+
+.input-field:focus {
+  transform: scale(1.01);
+}
+
+.form-success-indicator {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.input-valid + .form-success-indicator {
+  opacity: 1;
+}
+
+.submit-button {
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.submit-button-ready {
+  background: linear-gradient(90deg, #3b82f6, #0ea5e9, #3b82f6);
+  background-size: 200% 100%;
+  animation: gradientMove 3s ease infinite;
+}
+
+.submit-button-ready:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+@keyframes gradientMove {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+  margin-right: 8px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+`;
+
 export default function EmployeeRegisterPage() {
   const [formData, setFormData] = useState({
     name: "",
@@ -34,7 +109,20 @@ export default function EmployeeRegisterPage() {
     department: "",
     position: "",
   })
+  const [formErrors, setFormErrors] = useState<{
+    name?: string;
+    email?: string;
+    phone?: string;
+    department?: string;
+  }>({})
+  const [shakeFields, setShakeFields] = useState<{
+    name?: boolean;
+    email?: boolean;
+    phone?: boolean;
+    department?: boolean;
+  }>({})
   const [isSubmitted, setIsSubmitted] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [generatedQR, setGeneratedQR] = useState("")
   const [employeeId, setEmployeeId] = useState("")
   const [sendingEmail, setSendingEmail] = useState(false)
@@ -42,7 +130,18 @@ export default function EmployeeRegisterPage() {
   const [emailMode, setEmailMode] = useState<'real' | 'test' | 'error' | 'gmail-error'>('real')
   const [testEmailUrl, setTestEmailUrl] = useState<string | null>(null)
   const { toast } = useToast()
+  const { showAlert } = useCustomAlert()
   const router = useRouter()
+
+  // Reset shake animation after it completes
+  useEffect(() => {
+    if (Object.values(shakeFields).some(field => field)) {
+      const timer = setTimeout(() => {
+        setShakeFields({});
+      }, 820); // Animation duration
+      return () => clearTimeout(timer);
+    }
+  }, [shakeFields]);
 
   const generateEmployeeId = () => {
     return "NV" + Date.now().toString().slice(-6)
@@ -67,54 +166,147 @@ export default function EmployeeRegisterPage() {
     return result
   }
 
-  // Trong handleSubmit function, thay đổi phần tạo newEmployee:
+  // Validate email format
+  const validateEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    return emailRegex.test(email)
+  }
+
+  // Validate phone number
+  const validatePhone = (phone: string) => {
+    // If phone is optional and empty, it's valid
+    if (!phone) return true
+    // Otherwise check for 10-11 digits
+    return /^[0-9]{10,11}$/.test(phone)
+  }
+
+  // Check if email exists in localStorage
+  const checkEmailExists = (email: string) => {
+    const existingEmployees = JSON.parse(localStorage.getItem("employeeRegistrations") || "[]")
+    return existingEmployees.some((emp: any) => emp.email.toLowerCase() === email.toLowerCase())
+  }
+
+  // Check if phone exists in localStorage
+  const checkPhoneExists = (phone: string) => {
+    if (!phone) return false
+    const existingEmployees = JSON.parse(localStorage.getItem("employeeRegistrations") || "[]")
+    return existingEmployees.some((emp: any) => emp.phone === phone)
+  }
+
+  // Validate field in real-time with custom alerts
+  const validateField = (field: string, value: string) => {
+    let newErrors = { ...formErrors };
+    
+    switch (field) {
+      case 'name':
+        if (!value) {
+          newErrors.name = "Vui lòng nhập họ và tên";
+        } else {
+          delete newErrors.name;
+        }
+        break;
+        
+      case 'email':
+        if (!value) {
+          newErrors.email = "Vui lòng nhập email";
+        } else if (!validateEmail(value)) {
+          newErrors.email = "Email không đúng định dạng";
+        } else if (checkEmailExists(value)) {
+          newErrors.email = "Email này đã được đăng ký";
+          if (!formErrors.email || formErrors.email !== "Email này đã được đăng ký") {
+            showAlert("Email này đã được đăng ký trong hệ thống", "error");
+          }
+        } else {
+          delete newErrors.email;
+        }
+        break;
+        
+      case 'phone':
+        if (value && !validatePhone(value)) {
+          newErrors.phone = "Số điện thoại phải có 10-11 số";
+        } else if (value && checkPhoneExists(value)) {
+          newErrors.phone = "Số điện thoại này đã được đăng ký";
+          if (!formErrors.phone || formErrors.phone !== "Số điện thoại này đã được đăng ký") {
+            showAlert("Số điện thoại này đã được đăng ký trong hệ thống", "error");
+          }
+        } else {
+          delete newErrors.phone;
+        }
+        break;
+        
+      case 'department':
+        if (!value) {
+          newErrors.department = "Vui lòng chọn phòng ban";
+        } else {
+          delete newErrors.department;
+        }
+        break;
+    }
+    
+    setFormErrors(newErrors);
+    return !newErrors[field as keyof typeof newErrors];
+  }
+
+  // Check if a field is valid (for styling)
+  const isFieldValid = (field: string): boolean => {
+    switch(field) {
+      case 'name':
+        return formData.name.length > 0 && !formErrors.name;
+      case 'email':
+        return validateEmail(formData.email) && !formErrors.email;
+      case 'phone':
+        return !formData.phone || (validatePhone(formData.phone) && !formErrors.phone);
+      case 'department':
+        return !!formData.department && !formErrors.department;
+      default:
+        return false;
+    }
+  };
+
+  // Check if the form is valid and ready to submit
+  const isFormValid = (): boolean => {
+    return isFieldValid('name') && 
+           isFieldValid('email') && 
+           (isFieldValid('phone') || !formData.phone) && 
+           isFieldValid('department');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
-    if (!formData.name || !formData.email || !formData.department) {
-      alert("Vui lòng điền đầy đủ thông tin bắt buộc")
-      return
-    }
-
-    // Kiểm tra định dạng email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(formData.email)) {
-      alert("Email không hợp lệ. Vui lòng nhập đúng định dạng email.")
-      return
-    }
-
-    // Kiểm tra định dạng số điện thoại
-    if (formData.phone && !/^[0-9]{10,11}$/.test(formData.phone)) {
-      alert("Số điện thoại không hợp lệ. Vui lòng nhập 10-11 chữ số.")
-      return
-    }
-
-    const existingEmployees = JSON.parse(localStorage.getItem("employeeRegistrations") || "[]")
     
-    // Kiểm tra email đã tồn tại
-    const emailExists = existingEmployees.some((emp: any) => emp.email.toLowerCase() === formData.email.toLowerCase())
-    if (emailExists) {
-      alert("Email này đã được đăng ký. Vui lòng sử dụng email khác.")
-      return
+    // Validate all fields
+    const nameValid = validateField('name', formData.name);
+    const emailValid = validateField('email', formData.email);
+    const phoneValid = validateField('phone', formData.phone);
+    const departmentValid = validateField('department', formData.department);
+    
+    // Shake invalid fields
+    setShakeFields({
+      name: !nameValid,
+      email: !emailValid,
+      phone: !phoneValid,
+      department: !departmentValid
+    });
+    
+    // If any validation fails, don't submit and show a custom alert
+    if (!nameValid || !emailValid || !phoneValid || !departmentValid) {
+      showAlert("Vui lòng điền đầy đủ và chính xác thông tin", "warning");
+      return;
     }
 
-    // Kiểm tra số điện thoại đã tồn tại (nếu có)
-    if (formData.phone) {
-      const phoneExists = existingEmployees.some((emp: any) => emp.phone === formData.phone)
-      if (phoneExists) {
-        alert("Số điện thoại này đã được đăng ký. Vui lòng sử dụng số điện thoại khác.")
-        return
-      }
-    }
+    // Show loading state
+    setIsSubmitting(true);
 
     const newEmployeeId = generateEmployeeId()
     const uniqueCode = generateUniqueCode()
 
+    const existingEmployees = JSON.parse(localStorage.getItem("employeeRegistrations") || "[]")
     // Kiểm tra mã không trùng lặp
     const codeExists = existingEmployees.some((emp: any) => emp.uniqueCode === uniqueCode)
 
     if (codeExists) {
       // Tạo lại mã nếu trùng
+      setIsSubmitting(false);
       return handleSubmit(e)
     }
 
@@ -129,15 +321,27 @@ export default function EmployeeRegisterPage() {
       registeredAt: new Date().toISOString(),
     }
 
-    existingEmployees.push(newEmployee)
-    localStorage.setItem("employeeRegistrations", JSON.stringify(existingEmployees))
+    try {
+      existingEmployees.push(newEmployee)
+      localStorage.setItem("employeeRegistrations", JSON.stringify(existingEmployees))
 
-    setEmployeeId(newEmployeeId)
-    setGeneratedQR(qrCodeData)
-    setIsSubmitted(true)
-    
-    // Gửi email sau khi đăng ký thành công
-    await sendRegistrationEmail(newEmployee, qrCodeData, uniqueCode)
+      setEmployeeId(newEmployeeId)
+      setGeneratedQR(qrCodeData)
+
+      // Show success alert
+      showAlert("Đăng ký thành công! Đang tạo mã QR...", "success");
+      
+      // Gửi email sau khi đăng ký thành công
+      await sendRegistrationEmail(newEmployee, qrCodeData, uniqueCode)
+      
+      // Complete the submission
+      setIsSubmitted(true)
+    } catch (error) {
+      console.error("Error during registration:", error);
+      showAlert("Có lỗi xảy ra khi đăng ký. Vui lòng thử lại.", "error");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   // Thêm function gửi email đăng ký
@@ -245,6 +449,7 @@ export default function EmployeeRegisterPage() {
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
+    validateField(field, value);
   }
 
   // Cập nhật phần hiển thị thông báo email
@@ -418,6 +623,7 @@ export default function EmployeeRegisterPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
+      <style jsx global>{customStyles}</style>
       <div className="max-w-md mx-auto space-y-6">
         <Button variant="ghost" onClick={() => router.push("/")} className="mb-4">
           <ArrowLeft className="w-4 h-4 mr-2" />
@@ -431,43 +637,105 @@ export default function EmployeeRegisterPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <Label htmlFor="name">Họ và tên *</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => handleInputChange("name", e.target.value)}
-                  placeholder="Nguyễn Văn A"
-                  required
-                />
+                <div className="relative">
+                  <Input
+                    id="name"
+                    value={formData.name}
+                    onChange={(e) => handleInputChange("name", e.target.value)}
+                    placeholder="Nguyễn Văn A"
+                    required
+                    className={cn(
+                      "pr-10 input-field",
+                      shakeFields.name && "shake", 
+                      formErrors.name && "border-red-500 ring-1 ring-red-500 focus-visible:ring-red-500",
+                      isFieldValid('name') && "input-valid"
+                    )}
+                  />
+                  {isFieldValid('name') && (
+                    <span className="absolute right-3 top-2.5 form-success-indicator">
+                      <CheckCircle className="h-4 w-4 text-green-500" />
+                    </span>
+                  )}
+                </div>
+                {formErrors.name && (
+                  <div className="text-red-500 text-xs flex items-center gap-1 mt-1">
+                    <AlertCircle className="h-3 w-3" />
+                    <span>{formErrors.name}</span>
+                  </div>
+                )}
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <Label htmlFor="email">Email *</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => handleInputChange("email", e.target.value)}
-                  placeholder="example@company.com"
-                  required
-                />
+                <div className="relative">
+                  <Input
+                    id="email"
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => handleInputChange("email", e.target.value)}
+                    placeholder="example@company.com"
+                    required
+                    className={cn(
+                      "pr-10 input-field",
+                      shakeFields.email && "shake", 
+                      formErrors.email && "border-red-500 ring-1 ring-red-500 focus-visible:ring-red-500",
+                      isFieldValid('email') && "input-valid"
+                    )}
+                  />
+                  {isFieldValid('email') && (
+                    <span className="absolute right-3 top-2.5 form-success-indicator">
+                      <CheckCircle className="h-4 w-4 text-green-500" />
+                    </span>
+                  )}
+                </div>
+                {formErrors.email && (
+                  <div className="text-red-500 text-xs flex items-center gap-1 mt-1">
+                    <AlertCircle className="h-3 w-3" />
+                    <span>{formErrors.email}</span>
+                  </div>
+                )}
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <Label htmlFor="phone">Số điện thoại</Label>
-                <Input
-                  id="phone"
-                  value={formData.phone}
-                  onChange={(e) => handleInputChange("phone", e.target.value)}
-                  placeholder="0123456789"
-                />
+                <div className="relative">
+                  <Input
+                    id="phone"
+                    value={formData.phone}
+                    onChange={(e) => handleInputChange("phone", e.target.value)}
+                    placeholder="0123456789"
+                    className={cn(
+                      "pr-10 input-field",
+                      shakeFields.phone && "shake", 
+                      formErrors.phone && "border-red-500 ring-1 ring-red-500 focus-visible:ring-red-500",
+                      isFieldValid('phone') && "input-valid"
+                    )}
+                  />
+                  {isFieldValid('phone') && formData.phone && (
+                    <span className="absolute right-3 top-2.5 form-success-indicator">
+                      <CheckCircle className="h-4 w-4 text-green-500" />
+                    </span>
+                  )}
+                </div>
+                {formErrors.phone && (
+                  <div className="text-red-500 text-xs flex items-center gap-1 mt-1">
+                    <AlertCircle className="h-3 w-3" />
+                    <span>{formErrors.phone}</span>
+                  </div>
+                )}
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <Label htmlFor="department">Phòng ban *</Label>
                 <Select onValueChange={(value) => handleInputChange("department", value)}>
-                  <SelectTrigger>
+                  <SelectTrigger className={cn(
+                    "input-field",
+                    shakeFields.department && "shake", 
+                    formErrors.department && "border-red-500 ring-1 ring-red-500 focus-visible:ring-red-500",
+                    isFieldValid('department') && "input-valid"
+                  )}>
                     <SelectValue placeholder="Chọn phòng ban" />
                   </SelectTrigger>
                   <SelectContent>
@@ -479,6 +747,12 @@ export default function EmployeeRegisterPage() {
                     <SelectItem value="Operations">Vận hành</SelectItem>
                   </SelectContent>
                 </Select>
+                {formErrors.department && (
+                  <div className="text-red-500 text-xs flex items-center gap-1 mt-1">
+                    <AlertCircle className="h-3 w-3" />
+                    <span>{formErrors.department}</span>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -488,11 +762,26 @@ export default function EmployeeRegisterPage() {
                   value={formData.position}
                   onChange={(e) => handleInputChange("position", e.target.value)}
                   placeholder="Developer, Manager, ..."
+                  className="input-field"
                 />
               </div>
 
-              <Button type="submit" className="w-full">
-                Đăng ký và tạo mã QR
+              <Button 
+                type="submit" 
+                className={cn(
+                  "w-full mt-4 submit-button",
+                  isFormValid() && !isSubmitting && "submit-button-ready"
+                )}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <span className="loading-spinner"></span>
+                    Đang xử lý...
+                  </>
+                ) : (
+                  "Đăng ký và tạo mã QR"
+                )}
               </Button>
             </form>
           </CardContent>

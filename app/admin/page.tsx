@@ -41,7 +41,8 @@ import {
   UserRound,
   X,
   Trash,
-  RotateCcw
+  RotateCcw,
+  Calculator
 } from "lucide-react"
 import { emailTemplates } from "@/lib/emailTemplates"
 import { useCustomAlert } from "@/components/custom-alert"
@@ -1094,6 +1095,10 @@ export default function AdminPage() {
                 <BarChart3 className="w-4 h-4 mr-2" />
                 Báo cáo chi tiết
               </Button>
+              <Button variant="outline" onClick={() => router.push("/admin/salary")}>
+                <Calculator className="w-4 h-4 mr-2" />
+                Tính lương
+              </Button>
               <Button variant="outline" onClick={handleLogout}>
                 <LogOut className="w-4 h-4 mr-2" />
                 Đăng xuất
@@ -1162,7 +1167,7 @@ export default function AdminPage() {
 
         {/* Main Content */}
         <Tabs defaultValue="pending-approval" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
+          <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 lg:grid-cols-8">
             <TabsTrigger value="pending-approval">
               <UserCheck className="w-4 h-4 mr-2" />
               Chờ duyệt tài khoản
@@ -1183,10 +1188,10 @@ export default function AdminPage() {
               <Download className="w-4 h-4 mr-2" />
               Xuất dữ liệu
             </TabsTrigger>
-            {/* <TabsTrigger value="reports" onClick={() => router.push("/admin/reports")}>
-              <BarChart3 className="w-4 h-4 mr-2" />
-              Báo cáo chi tiết
-            </TabsTrigger> */}
+            <TabsTrigger value="salary" onClick={() => router.push("/admin/salary")}>
+              <Calculator className="w-4 h-4 mr-2" />
+              Tính lương
+            </TabsTrigger>
             <TabsTrigger value="notifications">
               <Mail className="w-4 h-4 mr-2" />
               Thông báo

@@ -221,14 +221,59 @@ export default function AttendancePage() {
       setFaceImage(imageDataUrl);
       
       // Tắt camera
-      const tracks = (video.srcObject as MediaStream).getTracks();
-      tracks.forEach(track => track.stop());
+      if (video.srcObject) {
+        const tracks = (video.srcObject as MediaStream).getTracks();
+        tracks.forEach(track => track.stop());
+      }
       
       // Lưu bản ghi và hiển thị xác nhận - không tự động lưu ở đây
       // để tránh ghi nhận trùng lặp
     }
     
     setIsCapturing(false);
+  };
+
+  // Hàm reset để chụp lại ảnh
+  const resetFaceCapture = async () => {
+    setFaceImage(null);
+    
+    // Đảm bảo tắt camera hiện tại trước
+    if (videoRef.current && videoRef.current.srcObject) {
+      const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
+      tracks.forEach(track => track.stop());
+    }
+    
+    // Khởi động lại camera
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: 'user',
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        } 
+      });
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      
+      // Reset đếm ngược
+      setCountdown(3);
+      const countdownTimer = setInterval(() => {
+        setCountdown(prev => {
+          if (prev === 1) {
+            clearInterval(countdownTimer);
+            captureImage();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      
+    } catch (err) {
+      console.error("Lỗi khi khởi động lại camera: ", err);
+      showAlert("Không thể truy cập camera. Vui lòng cấp quyền và thử lại.", "error");
+    }
   };
 
   // Lưu dữ liệu chấm công với hình ảnh khuôn mặt
@@ -709,10 +754,7 @@ export default function AttendancePage() {
                         <CheckCircle className="w-4 h-4 mr-2" />
                         Xác nhận
                       </Button>
-                      <Button variant="outline" onClick={() => {
-                        setFaceImage(null);
-                        setShowFaceCapture(true);
-                      }} className="flex-1">
+                      <Button variant="outline" onClick={resetFaceCapture} className="flex-1">
                         <Camera className="w-4 h-4 mr-2" />
                         Chụp lại
                       </Button>

@@ -35,6 +35,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
+
 interface EmployeeRegistration {
   id: string
   name: string
@@ -551,73 +552,30 @@ export default function ReportsPage() {
 
   const exportToPDF = async () => {
     try {
-      const { jsPDF } = await import("jspdf")
-      const doc = new jsPDF()
-
-      // Header
-      doc.setFontSize(18)
-      doc.text("BÁO CÁO CHẤM CÔNG CHI TIẾT", 20, 20)
-
-      doc.setFontSize(12)
-      doc.text(`Ngày báo cáo: ${new Date(selectedDate).toLocaleDateString("vi-VN")}`, 20, 35)
-      doc.text(`Thời gian xuất: ${new Date().toLocaleString("vi-VN")}`, 20, 45)
-
-      // Thống kê tổng quan
-      const stats = {
-        totalEmployees: employees.filter((emp) => emp.status === "approved").length,
-        totalRecords: attendanceRecords.filter(
-          (record) => new Date(record.timestamp).toDateString() === new Date(selectedDate).toDateString(),
-        ).length,
-        departments: [...new Set(employees.map((emp) => emp.department))].length,
-      }
-
-      doc.setFontSize(14)
-      doc.text("THỐNG KÊ TỔNG QUAN", 20, 65)
-      doc.setFontSize(10)
-      doc.text(`• Tổng số nhân viên: ${stats.totalEmployees}`, 25, 75)
-      doc.text(`• Tổng lượt chấm công: ${stats.totalRecords}`, 25, 85)
-      doc.text(`• Số phòng ban: ${stats.departments}`, 25, 95)
-
-      // Chi tiết chấm công
-      const filteredRecords = attendanceRecords.filter(
-        (record) => new Date(record.timestamp).toDateString() === new Date(selectedDate).toDateString(),
-      )
-
-      doc.setFontSize(14)
-      doc.text("CHI TIẾT CHẤM CÔNG", 20, 115)
-
-      // Table header
-      let y = 130
-      doc.setFontSize(9)
-      doc.text("STT", 20, y)
-      doc.text("Mã NV", 35, y)
-      doc.text("Tên nhân viên", 60, y)
-      doc.text("Loại", 100, y)
-      doc.text("Thời gian", 120, y)
-      doc.text("Địa điểm", 160, y)
-
-      // Table content
-      filteredRecords.forEach((record, index) => {
-        y += 8
-        if (y > 280) {
-          doc.addPage()
-          y = 20
-        }
-
-        doc.text((index + 1).toString(), 20, y)
-        doc.text(record.employeeId, 35, y)
-        doc.text(record.employeeName.substring(0, 12), 60, y)
-        doc.text(record.type === "check-in" ? "Vào" : "Ra", 100, y)
-        doc.text(new Date(record.timestamp).toLocaleTimeString("vi-VN"), 120, y)
-        doc.text((record.location || "N/A").substring(0, 10), 160, y)
-      })
-
-      doc.save(`bao_cao_cham_cong_${selectedDate}.pdf`)
-      alert("Xuất PDF thành công!")
+      const filteredRecords = getFilteredRecords();
+      
+      // Tạo thông tin báo cáo
+      const reportInfo = [
+        { label: "Ngày báo cáo", value: new Date(selectedDate).toLocaleDateString("vi-VN") },
+        { label: "Thời gian xuất", value: new Date().toLocaleString("vi-VN") },
+        { label: "Tổng số nhân viên", value: employees.filter((emp) => emp.status === "approved").length.toString() },
+        { label: "Tổng lượt chấm công", value: filteredRecords.length.toString() },
+        { label: "Số phòng ban", value: [...new Set(employees.map((emp) => emp.department))].length.toString() }
+      ];
+      
+      // Tên file
+      const fileName = `bao_cao_cham_cong_${selectedDate}.pdf`;
+      
+      // Import và sử dụng pdfGenerator
+      const pdfGenerator = await import("@/lib/pdfGenerator");
+      pdfGenerator.createDetailedReport(filteredRecords, reportInfo, fileName);
+      
+      alert("Xuất PDF thành công!");
     } catch (error) {
-      alert("Lỗi khi xuất PDF. Vui lòng thử lại.")
+      console.error("Export error:", error);
+      alert("Lỗi khi xuất PDF. Vui lòng thử lại.");
     }
-  }
+  };
 
   const exportToExcel = async () => {
     try {
@@ -742,25 +700,15 @@ export default function ReportsPage() {
     }
   }
 
-  // Export filtered data to PDF
   const exportFilteredToPDF = async () => {
     try {
       const filteredStats = getFilteredEmployeeStats();
-      const { jsPDF } = await import("jspdf")
-      const doc = new jsPDF()
-
-      // Header
-      doc.setFontSize(18)
-      doc.text("BÁO CÁO CHẤM CÔNG CHI TIẾT (ĐÃ LỌC)", 20, 20)
-
-      doc.setFontSize(12)
-      let yPos = 35;
       
-      // Filter information
-      doc.text("Thông tin bộ lọc:", 20, yPos); yPos += 10;
+      // Tạo thông tin bộ lọc
+      const filterInfo = [];
       
       if (filterMode === "day") {
-        doc.text(`Ngày: ${new Date(selectedDate).toLocaleDateString("vi-VN")}`, 25, yPos); yPos += 8;
+        filterInfo.push({ label: "Ngày", value: new Date(selectedDate).toLocaleDateString("vi-VN") });
       } else if (filterMode === "week") {
         const selectedDateObj = new Date(selectedDate);
         const startOfWeek = new Date(selectedDateObj);
@@ -769,66 +717,50 @@ export default function ReportsPage() {
         const endOfWeek = new Date(startOfWeek);
         endOfWeek.setDate(startOfWeek.getDate() + 6);
         
-        doc.text(`Tuần: ${startOfWeek.toLocaleDateString("vi-VN")} đến ${endOfWeek.toLocaleDateString("vi-VN")}`, 25, yPos); yPos += 8;
+        filterInfo.push({ 
+          label: "Tuần", 
+          value: `${startOfWeek.toLocaleDateString("vi-VN")} đến ${endOfWeek.toLocaleDateString("vi-VN")}` 
+        });
       } else if (filterMode === "month") {
-        doc.text(`Tháng: ${new Date(selectedDate).toLocaleDateString("vi-VN", { month: 'long', year: 'numeric' })}`, 25, yPos); yPos += 8;
+        filterInfo.push({ 
+          label: "Tháng", 
+          value: new Date(selectedDate).toLocaleDateString("vi-VN", { month: 'long', year: 'numeric' }) 
+        });
       }
       
       if (dateRangeStart && dateRangeEnd) {
-        doc.text(`Khoảng thời gian: ${new Date(dateRangeStart).toLocaleDateString("vi-VN")} đến ${new Date(dateRangeEnd).toLocaleDateString("vi-VN")}`, 25, yPos); yPos += 8;
+        filterInfo.push({ 
+          label: "Khoảng thời gian", 
+          value: `${new Date(dateRangeStart).toLocaleDateString("vi-VN")} đến ${new Date(dateRangeEnd).toLocaleDateString("vi-VN")}` 
+        });
       }
       
-      if (minHoursPerDay) doc.text(`Số giờ làm tối thiểu mỗi ngày: ${minHoursPerDay}h`, 25, yPos); yPos += 8;
-      if (maxHoursPerDay) doc.text(`Số giờ làm tối đa mỗi ngày: ${maxHoursPerDay}h`, 25, yPos); yPos += 8;
-      if (minHoursPerWeek && filterMode === "week") doc.text(`Số giờ làm tối thiểu trong tuần: ${minHoursPerWeek}h`, 25, yPos); yPos += 8;
-      if (maxHoursPerWeek && filterMode === "week") doc.text(`Số giờ làm tối đa trong tuần: ${maxHoursPerWeek}h`, 25, yPos); yPos += 8;
-      if (minHoursPerMonth && filterMode === "month") doc.text(`Số giờ làm tối thiểu trong tháng: ${minHoursPerMonth}h`, 25, yPos); yPos += 8;
-      if (maxHoursPerMonth && filterMode === "month") doc.text(`Số giờ làm tối đa trong tháng: ${maxHoursPerMonth}h`, 25, yPos); yPos += 8;
-      if (minDaysWorked) doc.text(`Số ngày làm việc tối thiểu: ${minDaysWorked} ngày`, 25, yPos); yPos += 8;
+      if (minHoursPerDay) filterInfo.push({ label: "Số giờ làm tối thiểu mỗi ngày", value: `${minHoursPerDay}h` });
+      if (maxHoursPerDay) filterInfo.push({ label: "Số giờ làm tối đa mỗi ngày", value: `${maxHoursPerDay}h` });
+      if (minHoursPerWeek && filterMode === "week") filterInfo.push({ label: "Số giờ làm tối thiểu trong tuần", value: `${minHoursPerWeek}h` });
+      if (maxHoursPerWeek && filterMode === "week") filterInfo.push({ label: "Số giờ làm tối đa trong tuần", value: `${maxHoursPerWeek}h` });
+      if (minHoursPerMonth && filterMode === "month") filterInfo.push({ label: "Số giờ làm tối thiểu trong tháng", value: `${minHoursPerMonth}h` });
+      if (maxHoursPerMonth && filterMode === "month") filterInfo.push({ label: "Số giờ làm tối đa trong tháng", value: `${maxHoursPerMonth}h` });
+      if (minDaysWorked) filterInfo.push({ label: "Số ngày làm việc tối thiểu", value: `${minDaysWorked} ngày` });
       
-      doc.text(`Thời gian xuất: ${new Date().toLocaleString("vi-VN")}`, 25, yPos);
-      yPos += 15;
-
-      // Table header
-      doc.setFontSize(14);
-      doc.text(`KẾT QUẢ LỌC (${filteredStats.length} nhân viên)`, 20, yPos);
-      yPos += 15;
-
-      doc.setFontSize(10);
-      // Table headers
-      doc.text("STT", 20, yPos);
-      doc.text("Mã NV", 35, yPos);
-      doc.text("Tên nhân viên", 60, yPos);
-      doc.text("Tổng giờ làm", 120, yPos);
-      doc.text("Số ngày làm", 160, yPos);
-      yPos += 8;
-
-      // Table content
-      filteredStats.forEach((stat, index) => {
-        if (yPos > 280) {
-          doc.addPage();
-          yPos = 20;
-        }
-
-        doc.text((index + 1).toString(), 20, yPos);
-        doc.text(stat.employeeId, 35, yPos);
-        doc.text(stat.employeeName.substring(0, 25), 60, yPos);
-        doc.text(`${Math.floor(stat.totalMinutes / 60)}h ${stat.totalMinutes % 60}m`, 120, yPos);
-        doc.text(stat.daysWorked.toString(), 160, yPos);
-        yPos += 8;
-      });
-
+      filterInfo.push({ label: "Thời gian xuất", value: new Date().toLocaleString("vi-VN") });
+      
+      // Tên file
       const fileName = dateRangeStart && dateRangeEnd 
         ? `bao_cao_cham_cong_${dateRangeStart}_den_${dateRangeEnd}.pdf`
         : `bao_cao_cham_cong_${filterMode}_${selectedDate}.pdf`;
-        
-      doc.save(fileName);
+  
+      // Import và sử dụng pdfGenerator
+      const pdfGenerator = await import("@/lib/pdfGenerator");
+      pdfGenerator.createFilteredReport(filteredStats, filterInfo, fileName);
+      
       alert("Xuất PDF thành công!");
     } catch (error) {
       console.error("Export error:", error);
       alert("Lỗi khi xuất PDF. Vui lòng thử lại.");
     }
   };
+  
 
   // Export filtered data to Excel
   const exportFilteredToExcel = async () => {

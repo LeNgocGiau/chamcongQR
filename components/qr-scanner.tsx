@@ -24,6 +24,9 @@ export function QrScanner({ onScan }: QrScannerProps) {
   const [videoLoaded, setVideoLoaded] = useState(false)
   const [videoStats, setVideoStats] = useState<{width: number, height: number} | null>(null)
   const debugTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const [countdown, setCountdown] = useState<number | null>(null)
+  const countdownRef = useRef<NodeJS.Timeout | null>(null)
+  const scanButtonRef = useRef<HTMLButtonElement>(null)
 
   // Function to release camera and clear resources
   const stopCamera = useCallback(() => {
@@ -59,6 +62,12 @@ export function QrScanner({ onScan }: QrScannerProps) {
       debugTimeoutRef.current = null
     }
     
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current)
+      countdownRef.current = null
+    }
+    
+    setCountdown(null)
     setVideoLoaded(false)
     setVideoStats(null)
     setStatus("stopped")
@@ -123,8 +132,14 @@ export function QrScanner({ onScan }: QrScannerProps) {
   }, [stopCamera])
 
   // Function to capture and scan QR code on button press
-  const captureAndScanQR = () => {
+  const captureAndScanQR = useCallback(() => {
+    console.log("captureAndScanQR called")
     if (!videoRef.current || !canvasRef.current || status !== "scanning") {
+      console.log("Early return: video not ready or status not scanning", { 
+        videoRef: !!videoRef.current, 
+        canvasRef: !!canvasRef.current, 
+        status 
+      })
       return
     }
     
@@ -133,6 +148,7 @@ export function QrScanner({ onScan }: QrScannerProps) {
     
     // Kiểm tra video đã sẵn sàng chưa
     if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+      console.log("Video not ready: readyState =", video.readyState)
       setError("Video chưa sẵn sàng. Vui lòng đợi...")
       return
     }
@@ -142,10 +158,13 @@ export function QrScanner({ onScan }: QrScannerProps) {
     const videoHeight = video.videoHeight
     
     if (videoWidth === 0 || videoHeight === 0) {
+      console.log("Invalid video dimensions:", videoWidth, "x", videoHeight)
       setError("Không có khung hình hợp lệ")
       return
     }
 
+    console.log("Capturing frame with dimensions:", videoWidth, "x", videoHeight)
+    
     // Set canvas dimensions
     canvas.width = videoWidth
     canvas.height = videoHeight
@@ -175,6 +194,7 @@ export function QrScanner({ onScan }: QrScannerProps) {
             onScan(code.data)
             return
           } else {
+            console.log("No QR code found in image")
             setError("Không tìm thấy mã QR trong hình. Vui lòng thử lại.")
           }
         } catch (err) {
@@ -186,7 +206,51 @@ export function QrScanner({ onScan }: QrScannerProps) {
         setError("Lỗi khi xử lý hình ảnh. Vui lòng thử lại.")
       }
     }
-  }
+  }, [onScan, status, stopCamera])
+
+  // Start countdown timer when camera is ready
+  const startCountdownTimer = useCallback(() => {
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current)
+    }
+    
+    // Give the camera a moment to initialize before starting countdown
+    setTimeout(() => {
+      console.log("Starting countdown timer")
+      setCountdown(4)
+      
+      countdownRef.current = setInterval(() => {
+        setCountdown((prev) => {
+          console.log("Countdown:", prev)
+          if (prev === null || prev <= 1) {
+            if (countdownRef.current) {
+              clearInterval(countdownRef.current)
+              countdownRef.current = null
+            }
+            
+            // Auto capture QR when countdown reaches 0
+            if (prev === 1) {
+              console.log("Countdown complete - triggering QR scan")
+              // Use a small delay to ensure state updates are complete
+              setTimeout(() => {
+                // Either click the button or call the function directly
+                if (scanButtonRef.current) {
+                  console.log("Clicking scan button via ref")
+                  scanButtonRef.current.click()
+                } else {
+                  console.log("Calling captureAndScanQR directly")
+                  captureAndScanQR()
+                }
+              }, 100)
+            }
+            
+            return null
+          }
+          return prev - 1
+        })
+      }, 1000)
+    }, 500) // Short delay to ensure camera is initialized
+  }, [captureAndScanQR])
 
   // Function to monitor video element status
   const startVideoMonitoring = useCallback(() => {
@@ -200,6 +264,14 @@ export function QrScanner({ onScan }: QrScannerProps) {
         console.log("Video monitor - readyState:", video.readyState)
         console.log("Video dimensions:", video.videoWidth, "x", video.videoHeight)
         console.log("Video paused:", video.paused, "ended:", video.ended)
+        
+        // Update video stats for display
+        if (video.videoWidth > 0 && video.videoHeight > 0) {
+          setVideoStats({
+            width: video.videoWidth,
+            height: video.videoHeight
+          })
+        }
         
         // If video is stuck, try to recover
         if (video.videoWidth === 0 && video.videoHeight === 0 && video.readyState >= 2) {
@@ -272,6 +344,7 @@ export function QrScanner({ onScan }: QrScannerProps) {
               console.log("Video playback started")
               setStatus("scanning")
               startVideoMonitoring()
+              startCountdownTimer()
             })
             .catch(err => {
               console.error("Play error:", err)
@@ -340,6 +413,7 @@ export function QrScanner({ onScan }: QrScannerProps) {
                   setVideoLoaded(true)
                   setStatus("scanning")
                   startVideoMonitoring()
+                  startCountdownTimer()
                 })
                 .catch(playErr => {
                   console.error("Play error (retry):", playErr)
@@ -376,7 +450,7 @@ export function QrScanner({ onScan }: QrScannerProps) {
       setStatus("error")
       stopCamera()
     }
-  }, [selectedCamera, status, stopCamera, startVideoMonitoring])
+  }, [selectedCamera, status, stopCamera, startVideoMonitoring, startCountdownTimer])
 
   useEffect(() => {
     listCameras()
@@ -440,6 +514,15 @@ export function QrScanner({ onScan }: QrScannerProps) {
                   Bật lại video
                 </Button>
               )}
+            </div>
+          </div>
+        )}
+        
+        {/* Countdown timer overlay */}
+        {countdown !== null && (
+          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+            <div className="text-6xl font-bold text-white bg-black/70 rounded-full w-24 h-24 flex items-center justify-center">
+              {countdown}
             </div>
           </div>
         )}
@@ -514,16 +597,22 @@ export function QrScanner({ onScan }: QrScannerProps) {
 
         {isScanning && (
           <Button 
+            ref={scanButtonRef}
             onClick={captureAndScanQR} 
             className="w-full bg-green-600 hover:bg-green-700"
           >
             <Camera className="w-4 h-4 mr-2" />
             Chụp để quét mã QR
+            {countdown !== null && " (tự động sau " + countdown + "s)"}
           </Button>
         )}
       </div>
 
-      <p className="text-xs text-gray-500 text-center">Đưa mã QR vào khung hình và bấm nút chụp để quét</p>
+      <p className="text-xs text-gray-500 text-center">
+        {countdown !== null 
+          ? "Hệ thống sẽ tự động quét sau " + countdown + " giây" 
+          : "Đưa mã QR vào khung hình và bấm nút chụp để quét"}
+      </p>
     </div>
   )
 }
